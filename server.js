@@ -2,7 +2,18 @@ const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
 const { Pool } = require('pg');
+const nodemailer = require('nodemailer');
 
+const mailTransporter =
+  process.env.EMAIL_USER && process.env.EMAIL_PASS
+    ? nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
+        },
+      })
+    : null;
 const app = express();
 const PORT = process.env.PORT || 3000;
 const AUTH_SECRET = process.env.JWT_SECRET || 'eleesa-portal-secret-2026';
@@ -247,9 +258,34 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       [resetCode, expiresAt, result.rows[0].user_id]
     );
 
+    if (process.env.BREVO_API_KEY && process.env.SENDER_EMAIL) {
+      const emailRes = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'accept': 'application/json',
+          'api-key': process.env.BREVO_API_KEY,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          sender: { name: 'ELEESA Portal', email: process.env.SENDER_EMAIL },
+          to: [{ email: cleanEmail, name: result.rows[0].full_name }],
+          subject: 'ELEESA Password Recovery Code',
+          textContent: `Hello ${result.rows[0].full_name},\n\nYour ELEESA password recovery code is: ${resetCode}\n\nThis code expires in 15 minutes.`,
+        }),
+      });
+
+      if (!emailRes.ok) {
+        const errData = await emailRes.json().catch(() => ({}));
+        throw new Error(errData.message || 'Brevo failed to send recovery email.');
+      }
+
+      return res.json({
+        message: 'A 6-digit recovery code has been sent to your email.',
+      });
+    }
+
     res.json({
-      message: `Recovery code generated (${resetCode}). Valid for 15 minutes.`,
-      reset_code: resetCode,
+      message: `Recovery code: ${resetCode} (Set BREVO_API_KEY & SENDER_EMAIL on Render to email it)`,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
