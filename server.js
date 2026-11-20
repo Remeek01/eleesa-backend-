@@ -231,6 +231,14 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 // POST /api/auth/forgot-password
 app.post('/api/auth/forgot-password', async (req, res) => {
   const { email } = req.body;
@@ -250,6 +258,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       return res.status(404).json({ message: 'No ELEESA account found with that email.' });
     }
 
+    const fullName = result.rows[0].full_name;
     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
@@ -259,6 +268,56 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     );
 
     if (process.env.BREVO_API_KEY && process.env.SENDER_EMAIL) {
+      const safeName = escapeHtml(fullName);
+      const htmlTemplate = `
+        <!DOCTYPE html>
+        <html>
+        <body style="margin:0;padding:0;background-color:#070d19;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#e2e8f0;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
+            <tr>
+              <td align="center">
+                <table width="100%" style="max-width:520px;background-color:#0f172a;border:1px solid #1e293b;border-radius:16px;overflow:hidden;">
+                  <tr>
+                    <td style="background:linear-gradient(135deg,#0b132b 0%,#1d4ed8 100%);padding:28px 24px;text-align:center;border-bottom:2px solid #00e5ff;">
+                      <div style="display:inline-block;padding:6px 14px;border-radius:999px;background-color:rgba(0,229,255,0.14);border:1px solid #00e5ff;color:#00e5ff;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;">
+                        &#9889; ELEESA Security Grid
+                      </div>
+                      <h1 style="margin:14px 0 4px;font-size:22px;color:#ffffff;letter-spacing:0.5px;">Password Recovery</h1>
+                      <p style="margin:0;font-size:13px;color:#cbd5e1;">Electrical &amp; Electronic Engineering Students Association</p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:28px 24px;">
+                      <p style="margin:0 0 14px;font-size:15px;color:#f8fafc;">Hello <strong>${safeName}</strong>,</p>
+                      <p style="margin:0 0 22px;font-size:14px;line-height:1.6;color:#94a3b8;">
+                        We received a request to reset your ELEESA Portal password. Enter the 6-digit verification code below in the app to complete the reset:
+                      </p>
+                      <div style="background-color:#070d19;border:1px dashed #00e5ff;border-radius:12px;padding:18px;text-align:center;margin-bottom:22px;">
+                        <span style="font-family:'Courier New',Courier,monospace;font-size:32px;font-weight:800;letter-spacing:10px;color:#ffb703;">
+                          ${resetCode}
+                        </span>
+                      </div>
+                      <p style="margin:0 0 8px;font-size:13px;color:#94a3b8;">
+                        &#9201; This code remains active for <strong style="color:#e2e8f0;">15 minutes</strong>.
+                      </p>
+                      <p style="margin:0;font-size:12px;color:#64748b;">
+                        If you did not request a password reset, you can safely ignore this message.
+                      </p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="background-color:#090f1d;padding:16px 24px;text-align:center;border-top:1px solid #1e293b;font-size:11px;color:#64748b;">
+                      ELEESA Mobile Portal &bull; Automated Authentication Dispatch
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
+      `;
+
       const emailRes = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: {
@@ -268,9 +327,10 @@ app.post('/api/auth/forgot-password', async (req, res) => {
         },
         body: JSON.stringify({
           sender: { name: 'ELEESA Portal', email: process.env.SENDER_EMAIL },
-          to: [{ email: cleanEmail, name: result.rows[0].full_name }],
-          subject: 'ELEESA Password Recovery Code',
-          textContent: `Hello ${result.rows[0].full_name},\n\nYour ELEESA password recovery code is: ${resetCode}\n\nThis code expires in 15 minutes.`,
+          to: [{ email: cleanEmail, name: fullName }],
+          subject: '⚡ ELEESA Password Recovery Code',
+          htmlContent: htmlTemplate,
+          textContent: `Hello ${fullName},\n\nYour ELEESA password recovery code is: ${resetCode}\n\nThis code expires in 15 minutes.`,
         }),
       });
 
@@ -291,7 +351,6 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-
 // POST /api/auth/reset-password
 app.post('/api/auth/reset-password', async (req, res) => {
   const { email, reset_code, new_password } = req.body;
