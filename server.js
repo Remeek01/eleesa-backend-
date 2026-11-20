@@ -1,6 +1,436 @@
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
+
+// --- AES-256-GCM ENCRYPTION FOR SENSITIVE PII ---
+function getEncryptionKey() {
+  const secret =
+    process.env.PROFILE_ENCRYPTION_KEY ||
+    process.env.DATABASE_URL ||
+    'eleesa-default-grid-key-2026';
+  return crypto.createHash('sha256').update(String(secret)).digest();
+}
+
+function encryptSensitive(plainText) {
+  if (!plainText) return '';
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', getEncryptionKey(), iv);
+  const encrypted = Buffer.concat([
+    cipher.update(String(plainText), 'utf8'),
+    cipher.final(),
+  ]);
+  const authTag = cipher.getAuthTag();
+  return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
+}
+
+function decryptSensitive(cipherPayload) {
+  if (!cipherPayload || !String(cipherPayload).includes(':')) {
+    return cipherPayload || '';
+  }
+  try {
+    const [ivHex, tagHex, dataHex] = String(cipherPayload).split(':');
+    const decipher = crypto.createDecipheriv(
+      'aes-256-gcm',
+      getEncryptionKey(),
+      Buffer.from(ivHex, 'hex')
+    );
+    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(dataHex, 'hex')),
+      decipher.final(),
+    ]);
+    return decrypted.toString('utf8');
+  } catch (_) {
+    return '[Encrypted Record]';
+  }
+}
+
+const LEVEL_TABLES = {
+  '100': 'level_100_students',
+  '200': 'level_200_students',
+  '300': 'level_300_students',
+  '400': 'level_400_students',
+};
+
+// --- AUTO-CREATE 4 LEVEL TABLES & STAFF PROFILES IN NEON ---
+async function ensureEleesaGridSchema() {
+  try {
+    await pool.query(`
+      ALTER TABLE public.users
+        ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS level VARCHAR(10),
+        ADD COLUMN IF NOT EXISTS index_or_staff_id VARCHAR(50);
+    `);
+
+    for (const tableName of Object.values(LEVEL_TABLES)) {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS public.${tableName} (
+          student_record_id SERIAL PRIMARY KEY,
+          user_id INTEGER UNIQUE NOT NULL REFERENCES public.users(user_id) ON DELETE CASCADE,
+          full_name VARCHAR(150) NOT NULL,
+          email VARCHAR(150) NOT NULL,
+          index_number VARCHAR(50) NOT NULL,
+          specialization VARCHAR(120) DEFAULT 'General Electrical & Electronic Engineering',
+          gender VARCHAR(20),
+          dob_encrypted TEXT NOT NULL,
+          phone_encrypted TEXT NOT NULL,
+          emergency_contact_encrypted TEXT NOT NULL,
+          hostel_encrypted TEXT NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+    }
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.staff_profiles (
+        staff_record_id SERIAL PRIMARY KEY,
+        user_id INTEGER UNIQUE NOT NULL REFERENCES public.users(user_id) ON DELETE CASCADE,
+        full_name VARCHAR(150) NOT NULL,
+        email VARCHAR(150) NOT NULL,
+        role VARCHAR(30) NOT NULL,
+        staff_id VARCHAR(50) NOT NULL,
+        academic_title VARCHAR(80) NOT NULL,
+        specialization VARCHAR(150) NOT NULL,
+        office_hours VARCHAR(120),
+        gender VARCHAR(20),
+        dob_encrypted TEXT NOT NULL,
+        phone_encrypted TEXT NOT NULL,
+        office_line_encrypted TEXT NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('ELEESA 4-level & encrypted staff tables verified.');
+  } catch (err) {
+    console.error('Schema initialization warning:', err.message);
+  }
+}
+ensureEleesaGridSchema();
+
+// GET /api/profile?email=...
+app.get('/api/profile', async (req, res) => {
+  const email = String(req.query.email || '').trim().toLowerCase();
+  if (!email) {
+    return res.status(400).json({ message: 'Email is required.' });
+  }
+
+  try {
+    const userRes = await pool.query(
+      'SELECT user_id, full_name, email, role, level, index_or_staff_id, COALESCE(profile_completed, FALSE) AS profile_completed FROM public.users WHERE LOWER(email) = $1',
+      [email]
+    );
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    const user = userRes.rows[0];
+    let profile = null;
+
+    if (user.role === 'student' || user.role === 'executive') {
+      const levelsToCheck = user.level && LEVEL_TABLES[user.level]
+        ? [user.level, ...Object.keys(LEVEL_TABLES).filter((l) => l !== user.level)]
+        : Object.keys(LEVEL_TABLES);
+
+      for (const lvl of levelsToCheck) {
+        const tbl = LEVEL_TABLES[lvl];
+        const rowRes = await pool.query(
+          `SELECT * FROM public.${tbl} WHERE user_id = $1`,
+          [user.user_id]
+        );
+        if (rowRes.rows.length > 0) {
+          const r = rowRes.rows[0];
+          profile = {
+            table_name: tbl,
+            level: lvl,
+            full_name: r.full_name,
+            email: r.email,
+            index_number: r.index_number,
+            specialization: r.specialization,
+            gender: r.gender || '',
+            dob: decryptSensitive(r.dob_encrypted),
+            phone: decryptSensitive(r.phone_encrypted),
+            emergency_contact: decryptSensitive(r.emergency_contact_encrypted),
+            hostel: decryptSensitive(r.hostel_encrypted),
+            updated_at: r.updated_at,
+          };
+          break;
+        }
+      }
+    } else {
+      const staffRes = await pool.query(
+        'SELECT * FROM public.staff_profiles WHERE user_id = $1',
+        [user.user_id]
+      );
+      if (staffRes.rows.length > 0) {
+        const s = staffRes.rows[0];
+        profile = {
+          table_name: 'staff_profiles',
+          full_name: s.full_name,
+          email: s.email,
+          role: s.role,
+          staff_id: s.staff_id,
+          academic_title: s.academic_title,
+          specialization: s.specialization,
+          office_hours: s.office_hours || '',
+          gender: s.gender || '',
+          dob: decryptSensitive(s.dob_encrypted),
+          phone: decryptSensitive(s.phone_encrypted),
+          office_line: decryptSensitive(s.office_line_encrypted),
+          updated_at: s.updated_at,
+        };
+      }
+    }
+
+    res.json({ user, profile });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/profile/save (Routes student into level_100..400 or staff into staff_profiles)
+app.post('/api/profile/save', async (req, res) => {
+  const {
+    email,
+    full_name,
+    level,
+    index_or_staff_id,
+    gender,
+    dob,
+    phone,
+    specialization,
+    emergency_contact,
+    hostel,
+    academic_title,
+    office_hours,
+    office_line,
+  } = req.body;
+
+  if (!email || !full_name || !dob || !phone) {
+    return res.status(400).json({
+      message: 'Full name, date of birth, and phone number are required.',
+    });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const cleanEmail = String(email).trim().toLowerCase();
+    const userRes = await client.query(
+      'SELECT user_id, role FROM public.users WHERE LOWER(email) = $1',
+      [cleanEmail]
+    );
+    if (userRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Account not found.' });
+    }
+
+    const { user_id, role } = userRes.rows[0];
+    const cleanName = String(full_name).trim();
+    const cleanId = String(index_or_staff_id || '').trim();
+
+    if (role === 'student' || role === 'executive') {
+      const cleanLevel = String(level || '').trim();
+      const targetTable = LEVEL_TABLES[cleanLevel];
+      if (!targetTable) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          message: 'Please select a valid academic level (100, 200, 300, or 400).',
+        });
+      }
+      if (!cleanId) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ message: 'Index number is required for students.' });
+      }
+
+      // Remove from other level tables if the student changed levels
+      for (const [lvlKey, tblName] of Object.entries(LEVEL_TABLES)) {
+        if (lvlKey !== cleanLevel) {
+          await client.query(`DELETE FROM public.${tblName} WHERE user_id = $1`, [user_id]);
+        }
+      }
+
+      await client.query(
+        `INSERT INTO public.${targetTable} (
+          user_id, full_name, email, index_number, specialization, gender,
+          dob_encrypted, phone_encrypted, emergency_contact_encrypted, hostel_encrypted, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
+        ON CONFLICT (user_id) DO UPDATE SET
+          full_name = EXCLUDED.full_name,
+          email = EXCLUDED.email,
+          index_number = EXCLUDED.index_number,
+          specialization = EXCLUDED.specialization,
+          gender = EXCLUDED.gender,
+          dob_encrypted = EXCLUDED.dob_encrypted,
+          phone_encrypted = EXCLUDED.phone_encrypted,
+          emergency_contact_encrypted = EXCLUDED.emergency_contact_encrypted,
+          hostel_encrypted = EXCLUDED.hostel_encrypted,
+          updated_at = CURRENT_TIMESTAMP`,
+        [
+          user_id,
+          cleanName,
+          cleanEmail,
+          cleanId,
+          String(specialization || 'General Electrical & Electronic Engineering').trim(),
+          String(gender || '').trim(),
+          encryptSensitive(dob),
+          encryptSensitive(phone),
+          encryptSensitive(emergency_contact || 'Not provided'),
+          encryptSensitive(hostel || 'Not provided'),
+        ]
+      );
+
+      await client.query(
+        `UPDATE public.users
+         SET full_name = $1, level = $2, index_or_staff_id = $3, profile_completed = TRUE
+         WHERE user_id = $4`,
+        [cleanName, cleanLevel, cleanId, user_id]
+      );
+    } else {
+      // Lecturer or HoD
+      if (!cleanId) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ message: 'Staff ID is required.' });
+      }
+
+      await client.query(
+        `INSERT INTO public.staff_profiles (
+          user_id, full_name, email, role, staff_id, academic_title,
+          specialization, office_hours, gender, dob_encrypted, phone_encrypted, office_line_encrypted, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP)
+        ON CONFLICT (user_id) DO UPDATE SET
+          full_name = EXCLUDED.full_name,
+          email = EXCLUDED.email,
+          role = EXCLUDED.role,
+          staff_id = EXCLUDED.staff_id,
+          academic_title = EXCLUDED.academic_title,
+          specialization = EXCLUDED.specialization,
+          office_hours = EXCLUDED.office_hours,
+          gender = EXCLUDED.gender,
+          dob_encrypted = EXCLUDED.dob_encrypted,
+          phone_encrypted = EXCLUDED.phone_encrypted,
+          office_line_encrypted = EXCLUDED.office_line_encrypted,
+          updated_at = CURRENT_TIMESTAMP`,
+        [
+          user_id,
+          cleanName,
+          cleanEmail,
+          role,
+          cleanId,
+          String(academic_title || (role === 'hod_admin' ? 'Head of Department (EEE)' : 'Lecturer')).trim(),
+          String(specialization || 'Electrical & Electronic Engineering').trim(),
+          String(office_hours || 'Mon - Fri, 9:00 AM - 4:00 PM').trim(),
+          String(gender || '').trim(),
+          encryptSensitive(dob),
+          encryptSensitive(phone),
+          encryptSensitive(office_line || phone),
+        ]
+      );
+
+      await client.query(
+        `UPDATE public.users
+         SET full_name = $1, index_or_staff_id = $2, profile_completed = TRUE
+         WHERE user_id = $3`,
+        [cleanName, cleanId, user_id]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json({ message: 'Encrypted profile saved to ELEESA Grid.' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// GET /api/hub/students-by-level?requester_email=... (Lecturer & HoD Only)
+app.get('/api/hub/students-by-level', async (req, res) => {
+  const requesterEmail = String(req.query.requester_email || '').trim().toLowerCase();
+  if (!requesterEmail) {
+    return res.status(400).json({ message: 'Requester email is required.' });
+  }
+
+  try {
+    const authRes = await pool.query(
+      'SELECT role FROM public.users WHERE LOWER(email) = $1',
+      [requesterEmail]
+    );
+    if (
+      authRes.rows.length === 0 ||
+      !['lecturer', 'hod_admin'].includes(authRes.rows[0].role)
+    ) {
+      return res.status(403).json({
+        message: 'Access denied. Only Lecturers and the HoD can inspect the 4-level student database.',
+      });
+    }
+
+    const levels = {};
+    const counts = { '100': 0, '200': 0, '300': 0, '400': 0, total: 0 };
+
+    for (const [lvl, tbl] of Object.entries(LEVEL_TABLES)) {
+      const rowsRes = await pool.query(
+        `SELECT * FROM public.${tbl} ORDER BY full_name ASC`
+      );
+      levels[lvl] = rowsRes.rows.map((r) => ({
+        student_record_id: r.student_record_id,
+        full_name: r.full_name,
+        email: r.email,
+        index_number: r.index_number,
+        level: lvl,
+        table_name: tbl,
+        specialization: r.specialization,
+        gender: r.gender || 'N/A',
+        dob: decryptSensitive(r.dob_encrypted),
+        phone: decryptSensitive(r.phone_encrypted),
+        emergency_contact: decryptSensitive(r.emergency_contact_encrypted),
+        hostel: decryptSensitive(r.hostel_encrypted),
+      }));
+      counts[lvl] = levels[lvl].length;
+      counts.total += levels[lvl].length;
+    }
+
+    res.json({ counts, levels });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/hub/staff-directory?requester_email=... (HoD & Lecturer Directory)
+app.get('/api/hub/staff-directory', async (req, res) => {
+  const requesterEmail = String(req.query.requester_email || '').trim().toLowerCase();
+  try {
+    const authRes = await pool.query(
+      'SELECT role FROM public.users WHERE LOWER(email) = $1',
+      [requesterEmail]
+    );
+    if (
+      authRes.rows.length === 0 ||
+      !['lecturer', 'hod_admin'].includes(authRes.rows[0].role)
+    ) {
+      return res.status(403).json({ message: 'Staff access only.' });
+    }
+
+    const staffRes = await pool.query(
+      'SELECT * FROM public.staff_profiles ORDER BY role DESC, full_name ASC'
+    );
+    const staff = staffRes.rows.map((s) => ({
+      staff_id: s.staff_id,
+      full_name: s.full_name,
+      email: s.email,
+      role: s.role,
+      academic_title: s.academic_title,
+      specialization: s.specialization,
+      office_hours: s.office_hours,
+      phone: decryptSensitive(s.phone_encrypted),
+      office_line: decryptSensitive(s.office_line_encrypted),
+    }));
+
+    res.json({ staff });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 const { Pool } = require('pg');
 const nodemailer = require('nodemailer');
 
