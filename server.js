@@ -1492,14 +1492,44 @@ async function seedWave2DefaultsIfEmpty() {
 
 app.get('/api/academic/courses', async (req, res) => {
   await ensureWave2Ready();
-  await seedWave2DefaultsIfEmpty();
+  let seedDebug = null;
   try {
-    const result = await pool.query(
+    let result = await pool.query(
       'SELECT * FROM public.eleesa_courses ORDER BY level ASC, semester ASC, course_code ASC'
     );
-    res.json({ courses: result.rows });
+
+    if (result.rows.length === 0) {
+      const fallbackCourses = [
+        ['EL 151', 'Applied Electricity & Circuit Fundamentals', '100', '1', 3, 'None', 'DC/AC network theorems, mesh and nodal analysis, phasors, resonance, and single-phase power circuits.', 'Dr. K. Mensah', 'kmensah@umat.edu.gh'],
+        ['EL 152', 'Basic Electronics & Semiconductor Devices', '100', '2', 3, 'EL 151', 'PN junction diodes, rectifiers, BJT and MOSFET biasing, small-signal amplifiers, and operational amplifier basics.', 'Ing. A. Boateng', 'aboateng@umat.edu.gh'],
+        ['EL 251', 'Electromagnetic Field Theory', '200', '1', 3, 'EL 151', 'Vector calculus, electrostatics, magnetostatics, Faraday’s law, Maxwell’s equations, and transmission line fundamentals.', 'Dr. E. Osei-Tutu', 'eoseitutu@umat.edu.gh'],
+        ['EL 254', 'Digital Logic & Microprocessor Systems', '200', '2', 3, 'EL 152', 'Boolean algebra, combinational and sequential logic design, VHDL basics, and 8-bit/32-bit microcontroller architecture.', 'Ing. S. Owusu', 'sowusu@umat.edu.gh'],
+        ['EL 351', 'Control Systems Engineering', '300', '1', 3, 'EL 251', 'Transfer functions, state-space modeling, time-domain stability, Routh-Hurwitz criterion, root locus, and Bode/Nyquist frequency design.', 'Dr. M. Asante', 'masante@umat.edu.gh'],
+        ['EL 353', 'Power Systems Analysis & Protection', '300', '1', 3, 'EL 251', 'Per-unit system, symmetrical components, load flow studies (Gauss-Seidel & Newton-Raphson), fault analysis, and relay coordination.', 'Prof. J. K. Gyimah', 'jkgyimah@umat.edu.gh'],
+        ['EL 356', 'Power Electronics & Electric Drives', '300', '2', 3, 'EL 152, EL 353', 'Controlled rectifiers, DC-DC choppers, PWM inverters, and variable-speed induction/DC motor drives.', 'Ing. R. Darko', 'rdarko@umat.edu.gh'],
+        ['EL 451', 'High Voltage Engineering & Substations', '400', '1', 3, 'EL 353', 'Dielectric breakdown mechanisms, surge arresters, insulation coordination, switchgear, and primary substation design.', 'Prof. J. K. Gyimah', 'jkgyimah@umat.edu.gh'],
+        ['EL 454', 'Industrial Automation & SCADA Systems', '400', '2', 3, 'EL 351', 'PLC ladder logic programming, industrial fieldbuses, SCADA telemetry, and smart grid instrumentation.', 'Dr. M. Asante', 'masante@umat.edu.gh']
+      ];
+
+      for (const row of fallbackCourses) {
+        await pool.query(
+          `INSERT INTO public.eleesa_courses
+           (course_code, course_title, level, semester, credit_hours, prerequisites, syllabus, lecturer_name, lecturer_email)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           ON CONFLICT (course_code) DO NOTHING`,
+          row
+        );
+      }
+
+      result = await pool.query(
+        'SELECT * FROM public.eleesa_courses ORDER BY level ASC, semester ASC, course_code ASC'
+      );
+      seedDebug = { insertedAttempted: fallbackCourses.length, returnedCount: result.rows.length };
+    }
+
+    res.json({ courses: result.rows, seedDebug });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ message: err.message, seedDebug });
   }
 });
 
