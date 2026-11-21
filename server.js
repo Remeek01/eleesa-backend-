@@ -2515,6 +2515,94 @@ app.get('/api/wave4/people', async (req, res) => {
 });
 // ==================== END WAVE 4 ====================
 
+
+// ==================== WAVE 5: FEEDBACK, HELP DESK & TOOLS TELEMETRY ====================
+let _wave5ReadyPromise = null;
+function ensureWave5Ready() {
+  if (!_wave5ReadyPromise) {
+    _wave5ReadyPromise = initAndSeedWave5().catch((err) => {
+      _wave5ReadyPromise = null;
+      console.error('Wave 5 init error:', err.message);
+      throw err;
+    });
+  }
+  return _wave5ReadyPromise;
+}
+
+async function initAndSeedWave5() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.eleesa_feedback_tickets (
+        ticket_id SERIAL PRIMARY KEY,
+        category VARCHAR(60) NOT NULL DEFAULT 'Help Desk',
+        subject VARCHAR(200) NOT NULL,
+        message TEXT NOT NULL,
+        submitted_by VARCHAR(150) NOT NULL,
+        sender_role VARCHAR(40) DEFAULT 'student',
+        sender_level VARCHAR(20) DEFAULT '300',
+        status VARCHAR(30) NOT NULL DEFAULT 'Open',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    const tCnt = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.eleesa_feedback_tickets');
+    if ((tCnt.rows[0]?.cnt ?? 0) === 0) {
+      const seeds = [
+        ['Help Desk', 'Request for Official 8-Week Industrial Attachment Intro Letter', 'Need signed departmental introductory letter addressed to ECG Sekondi-Takoradi Engineering Office.', 'Maxwell Amoah', 'student', '300', 'Open'],
+        ['Lab & Facility', 'Oscilloscope Probe Calibration in Electronics Lab Bench 4', 'Channel 2 attenuator probe on Bench 4 reads ~8% low at 1kHz square wave test.', 'Kwame Mensah', 'student', '400', 'In Review'],
+        ['Suggestion', 'Add Three-Phase Fault & Load Flow Quick Reference Cards', 'Helpful to have symmetrical components and per-unit conversion formulas alongside the CGPA calculator.', 'Abena Osei', 'executive', '300', 'Resolved']
+      ];
+      for (const s of seeds) {
+        await pool.query(
+          `INSERT INTO public.eleesa_feedback_tickets
+           (category, subject, message, submitted_by, sender_role, sender_level, status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          s
+        );
+      }
+    }
+  } catch (e) {
+    console.error('Wave 5 init warning:', e.message);
+  }
+}
+
+app.get('/api/wave5/feedback', async (req, res) => {
+  await ensureWave5Ready();
+  try {
+    const result = await pool.query('SELECT * FROM public.eleesa_feedback_tickets ORDER BY ticket_id DESC');
+    res.json({ tickets: result.rows });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post('/api/wave5/feedback', async (req, res) => {
+  await ensureWave5Ready();
+  const { category, subject, message, submitted_by, sender_role, sender_level } = req.body || {};
+  if (!subject || !message || !submitted_by) {
+    return res.status(400).json({ message: 'subject, message, and submitted_by are required.' });
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO public.eleesa_feedback_tickets
+       (category, subject, message, submitted_by, sender_role, sender_level, status)
+       VALUES ($1,$2,$3,$4,$5,$6,'Open') RETURNING *`,
+      [
+        String(category || 'Help Desk').trim(),
+        subject.trim(),
+        message.trim(),
+        submitted_by.trim(),
+        String(sender_role || 'student').trim(),
+        String(sender_level || '300').trim()
+      ]
+    );
+    res.status(201).json({ ticket: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+// ==================== END WAVE 5 ====================
+
 const activeHttpServer = app.listen(PORT, (err) => {
   if (err) {
     console.error('Failed to start server:', err.message);
