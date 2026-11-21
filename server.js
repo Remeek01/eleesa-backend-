@@ -1433,35 +1433,32 @@ app.post('/api/academic/department-info', async (req, res) => {
 async function seedWave2DefaultsIfEmpty() {
   try {
     await pool.query(`
-      ALTER TABLE public.eleesa_timetables
-        ADD COLUMN IF NOT EXISTS entry_type VARCHAR(20) DEFAULT 'lecture',
-        ADD COLUMN IF NOT EXISTS level VARCHAR(10) DEFAULT '100',
-        ADD COLUMN IF NOT EXISTS day_or_date VARCHAR(60) DEFAULT 'Monday',
-        ADD COLUMN IF NOT EXISTS time_slot VARCHAR(60) DEFAULT '08:00 AM – 10:00 AM',
-        ADD COLUMN IF NOT EXISTS course_code VARCHAR(30) DEFAULT 'EL 151',
-        ADD COLUMN IF NOT EXISTS course_title VARCHAR(200) DEFAULT 'Core EEE Course',
-        ADD COLUMN IF NOT EXISTS venue VARCHAR(120) DEFAULT 'Engineering Block',
-        ADD COLUMN IF NOT EXISTS lecturer_or_invigilator VARCHAR(150) DEFAULT 'Faculty Staff'
+      DO $$
+      DECLARE col RECORD;
+      BEGIN
+        FOR col IN
+          SELECT table_name, column_name
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name IN ('department_info', 'eleesa_timetables', 'academic_calendar')
+            AND is_nullable = 'NO'
+            AND column_default IS NULL
+        LOOP
+          EXECUTE format('ALTER TABLE public.%I ALTER COLUMN %I DROP NOT NULL', col.table_name, col.column_name);
+        END LOOP;
+      END $$;
     `);
-    await pool.query(`
-      ALTER TABLE public.academic_calendar
-        ADD COLUMN IF NOT EXISTS title VARCHAR(200) DEFAULT 'Academic Milestone',
-        ADD COLUMN IF NOT EXISTS category VARCHAR(40) DEFAULT 'Academic',
-        ADD COLUMN IF NOT EXISTS event_date VARCHAR(80) DEFAULT 'TBA',
-        ADD COLUMN IF NOT EXISTS target_level VARCHAR(20) DEFAULT 'ALL',
-        ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''
-    `);
-  } catch (alterWave2Err) {
-    console.error('Wave 2 timetable/calendar alter warning:', alterWave2Err.message);
+  } catch (schemaRelaxErr) {
+    console.error('Wave 2 schema relax warning:', schemaRelaxErr.message);
   }
+
   try {
     const deptRes = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.department_info');
     if ((deptRes.rows[0]?.cnt ?? 0) === 0) {
       await pool.query(
         `INSERT INTO public.department_info
          (id, department_name, institution, location, office_hours, contact_email, contact_phone, history, vision, mission, hod_message)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-         `,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
         [
           1,
           'Department of Electrical & Electronic Engineering',
@@ -1477,30 +1474,11 @@ async function seedWave2DefaultsIfEmpty() {
         ]
       );
     }
+  } catch (deptErr) {
+    console.error('seed department_info warning:', deptErr.message);
+  }
 
-    const cRes = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.eleesa_courses');
-    if ((cRes.rows[0]?.cnt ?? 0) === 0) {
-      const seedCourses = [
-        ['EL 151', 'Applied Electricity & Circuit Fundamentals', '100', '1', 3, 'None', 'DC/AC network theorems, mesh and nodal analysis, phasors, resonance, and single-phase power circuits.', 'Dr. K. Mensah', 'kmensah@umat.edu.gh'],
-        ['EL 152', 'Basic Electronics & Semiconductor Devices', '100', '2', 3, 'EL 151', 'PN junction diodes, rectifiers, BJT and MOSFET biasing, small-signal amplifiers, and operational amplifier basics.', 'Ing. A. Boateng', 'aboateng@umat.edu.gh'],
-        ['EL 251', 'Electromagnetic Field Theory', '200', '1', 3, 'EL 151', 'Vector calculus, electrostatics, magnetostatics, Faraday’s law, Maxwell’s equations, and transmission line fundamentals.', 'Dr. E. Osei-Tutu', 'eoseitutu@umat.edu.gh'],
-        ['EL 254', 'Digital Logic & Microprocessor Systems', '200', '2', 3, 'EL 152', 'Boolean algebra, combinational and sequential logic design, VHDL basics, and 8-bit/32-bit microcontroller architecture.', 'Ing. S. Owusu', 'sowusu@umat.edu.gh'],
-        ['EL 351', 'Control Systems Engineering', '300', '1', 3, 'EL 251', 'Transfer functions, state-space modeling, time-domain stability, Routh-Hurwitz criterion, root locus, and Bode/Nyquist frequency design.', 'Dr. M. Asante', 'masante@umat.edu.gh'],
-        ['EL 353', 'Power Systems Analysis & Protection', '300', '1', 3, 'EL 251', 'Per-unit system, symmetrical components, load flow studies (Gauss-Seidel & Newton-Raphson), fault analysis, and relay coordination.', 'Prof. J. K. Gyimah', 'jkgyimah@umat.edu.gh'],
-        ['EL 356', 'Power Electronics & Electric Drives', '300', '2', 3, 'EL 152, EL 353', 'Controlled rectifiers, DC-DC choppers, PWM inverters, and variable-speed induction/DC motor drives.', 'Ing. R. Darko', 'rdarko@umat.edu.gh'],
-        ['EL 451', 'High Voltage Engineering & Substations', '400', '1', 3, 'EL 353', 'Dielectric breakdown mechanisms, surge arresters, insulation coordination, switchgear, and primary substation design.', 'Prof. J. K. Gyimah', 'jkgyimah@umat.edu.gh'],
-        ['EL 454', 'Industrial Automation & SCADA Systems', '400', '2', 3, 'EL 351', 'PLC ladder logic programming, industrial fieldbuses, SCADA telemetry, and smart grid instrumentation.', 'Dr. M. Asante', 'masante@umat.edu.gh']
-      ];
-      for (const c of seedCourses) {
-        await pool.query(
-          `INSERT INTO public.eleesa_courses
-           (course_code, course_title, level, semester, credit_hours, prerequisites, syllabus, lecturer_name, lecturer_email)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (course_code) DO NOTHING`,
-          c
-        );
-      }
-    }
-
+  try {
     const tRes = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.eleesa_timetables');
     if ((tRes.rows[0]?.cnt ?? 0) === 0) {
       const seedSlots = [
@@ -1524,7 +1502,11 @@ async function seedWave2DefaultsIfEmpty() {
         );
       }
     }
+  } catch (ttErr) {
+    console.error('seed eleesa_timetables warning:', ttErr.message);
+  }
 
+  try {
     const calRes = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.academic_calendar');
     if ((calRes.rows[0]?.cnt ?? 0) === 0) {
       const seedEvents = [
@@ -1542,11 +1524,10 @@ async function seedWave2DefaultsIfEmpty() {
         );
       }
     }
-  } catch (e) {
-    console.error('seedWave2DefaultsIfEmpty warning:', e.message);
+  } catch (calErr) {
+    console.error('seed academic_calendar warning:', calErr.message);
   }
 }
-
 app.get('/api/academic/courses', async (req, res) => {
   await ensureWave2Ready();
   let seedDebug = null;
