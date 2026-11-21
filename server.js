@@ -1492,6 +1492,7 @@ async function seedWave2DefaultsIfEmpty() {
 
 app.get('/api/academic/courses', async (req, res) => {
   await ensureWave2Ready();
+  await seedWave2DefaultsIfEmpty();
   try {
     const result = await pool.query(
       'SELECT * FROM public.eleesa_courses ORDER BY level ASC, semester ASC, course_code ASC'
