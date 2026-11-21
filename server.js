@@ -1304,6 +1304,26 @@ console.error('Wave 2 seed warning:', seedErr.message);
 }
 // GET /api/academic/overview (Item #1: Home Dashboard Live Feed)
 app.get('/api/academic/overview', async (req, res) => {
+  try {
+    await pool.query(`
+      ALTER TABLE public.department_info
+        ADD COLUMN IF NOT EXISTS id INTEGER DEFAULT 1,
+        ADD COLUMN IF NOT EXISTS department_name VARCHAR(200) DEFAULT 'Department of Electrical & Electronic Engineering',
+        ADD COLUMN IF NOT EXISTS institution VARCHAR(200) DEFAULT 'University of Mines and Technology (UMaT)',
+        ADD COLUMN IF NOT EXISTS location VARCHAR(250) DEFAULT 'Faculty of Engineering Block, UMaT Main Campus, Tarkwa',
+        ADD COLUMN IF NOT EXISTS office_hours VARCHAR(150) DEFAULT 'Monday – Friday • 8:00 AM – 5:00 PM GMT',
+        ADD COLUMN IF NOT EXISTS contact_email VARCHAR(150) DEFAULT 'eee.dept@umat.edu.gh',
+        ADD COLUMN IF NOT EXISTS contact_phone VARCHAR(80) DEFAULT '+233 (0) 312 320 324',
+        ADD COLUMN IF NOT EXISTS history TEXT DEFAULT '',
+        ADD COLUMN IF NOT EXISTS vision TEXT DEFAULT '',
+        ADD COLUMN IF NOT EXISTS mission TEXT DEFAULT '',
+        ADD COLUMN IF NOT EXISTS hod_message TEXT DEFAULT '',
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()
+    `);
+    await pool.query(`UPDATE public.department_info SET id = 1 WHERE id IS NULL`);
+  } catch (e) {
+    console.error('department_info migration warning:', e.message);
+  }
   await ensureWave2Ready();
   const level = String(req.query.level || '100').trim();
   try {
@@ -1374,7 +1394,7 @@ app.post('/api/academic/department-info', async (req, res) => {
            mission = COALESCE(NULLIF($9,''), mission),
            hod_message = COALESCE(NULLIF($10,''), hod_message),
            updated_at = NOW()
-       WHERE id = 1`,
+       WHERE id = 1 OR id IS NULL`,
       [
         department_name || '',
         institution || '',
