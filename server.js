@@ -2265,6 +2265,256 @@ app.post('/api/wave3/attachments', async (req, res) => {
 });
 // ==================== END WAVE 3 ====================
 
+
+// ==================== WAVE 4: NOTICES/EVENTS, KNOW YOUR PEOPLE & JIJI STORE ====================
+let _wave4ReadyPromise = null;
+function ensureWave4Ready() {
+  if (!_wave4ReadyPromise) {
+    _wave4ReadyPromise = initAndSeedWave4().catch((err) => {
+      _wave4ReadyPromise = null;
+      console.error('Wave 4 init error:', err.message);
+      throw err;
+    });
+  }
+  return _wave4ReadyPromise;
+}
+
+async function initAndSeedWave4() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.eleesa_notices (
+        notice_id SERIAL PRIMARY KEY,
+        title VARCHAR(220) NOT NULL,
+        category VARCHAR(60) NOT NULL DEFAULT 'Department Notice',
+        event_date VARCHAR(60) DEFAULT '',
+        venue VARCHAR(140) DEFAULT 'Faculty of Engineering Auditorium',
+        body TEXT NOT NULL,
+        posted_by VARCHAR(150) NOT NULL,
+        poster_role VARCHAR(40) DEFAULT 'executive',
+        rsvp_count INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.eleesa_store_items (
+        item_id SERIAL PRIMARY KEY,
+        title VARCHAR(200) NOT NULL,
+        category VARCHAR(60) NOT NULL DEFAULT 'Lab & Circuit Kits',
+        price_ghs NUMERIC(10,2) NOT NULL DEFAULT 0,
+        condition VARCHAR(40) NOT NULL DEFAULT 'Neatly Used',
+        location VARCHAR(120) NOT NULL DEFAULT 'Tarkwa Campus',
+        description TEXT NOT NULL,
+        seller_name VARCHAR(150) NOT NULL,
+        seller_contact VARCHAR(80) NOT NULL,
+        seller_level VARCHAR(20) DEFAULT '300',
+        status VARCHAR(30) NOT NULL DEFAULT 'Available',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.eleesa_directory_people (
+        person_id SERIAL PRIMARY KEY,
+        full_name VARCHAR(160) NOT NULL,
+        role_group VARCHAR(50) NOT NULL DEFAULT 'Student',
+        title_or_level VARCHAR(100) NOT NULL DEFAULT 'Level 300',
+        specialty_or_portfolio VARCHAR(160) DEFAULT 'Electrical & Electronic Engineering',
+        email VARCHAR(160) DEFAULT '',
+        phone VARCHAR(60) DEFAULT '',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+  } catch (ddlErr) {
+    console.error('Wave 4 DDL warning:', ddlErr.message);
+  }
+
+  try {
+    const nCnt = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.eleesa_notices');
+    if ((nCnt.rows[0]?.cnt ?? 0) === 0) {
+      const notices = [
+        ['IEEE UMaT Student Branch & GhIE Technical Seminar: Smart Grid Protection', 'IEEE / GhIE Event', 'Nov 29, 2026 • 10:00 AM', 'Engineering Auditorium, UMaT Tarkwa', 'Hands-on workshop covering 11kV/33kV feeder protection relays, SCADA telemetry, and student membership induction.', 'ELEESA Executive Council', 'executive', 34],
+        ['Mandatory Level 300 & 400 Laboratory Safety & High-Voltage Briefing', 'Department Notice', 'Nov 26, 2026 • 02:00 PM', 'Power Systems & High Voltage Lab', 'All students booked for power and machines lab sessions must complete PPE inspection and interlock safety sign-off.', 'Prof. J. K. Gyimah', 'hod', 58],
+        ['ELEESA Hackathon & Embedded Systems Design Challenge 2026', 'Competition', 'Dec 05, 2026 • 09:00 AM', 'Analog & Digital Electronics Lab', 'Form teams of 3 to build ESP32/STM32 industrial monitoring prototypes. Top 3 teams receive lab component grants.', 'Ing. R. Darko', 'lecturer', 41],
+        ['Semester 1 Examination Clearance & Course Registration Reminder', 'Academic Alert', 'Nov 28, 2026 • 05:00 PM', 'Departmental Noticeboard / Portal', 'Verify all registered Level 100–400 courses before the add/drop portal closes.', 'Dr. M. Asante', 'lecturer', 76]
+      ];
+      for (const n of notices) {
+        await pool.query(
+          `INSERT INTO public.eleesa_notices (title, category, event_date, venue, body, posted_by, poster_role, rsvp_count)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          n
+        );
+      }
+    }
+  } catch (e) {
+    console.error('Wave 4 notice seed warning:', e.message);
+  }
+
+  try {
+    const sCnt = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.eleesa_store_items');
+    if ((sCnt.rows[0]?.cnt ?? 0) === 0) {
+      const items = [
+        ['Casio fx-991EX ClassWiz Scientific Calculator (Original)', 'Calculators', 240.00, 'Brand New', 'Chamber of Mines Hall, Tarkwa', 'Complex matrix, vector, and base-n solver approved for all UMaT EEE examinations.', 'Kwame Mensah', '0244 812 390', '300', 'Available'],
+        ['ESP32-S3 + Arduino Mega + 37-Sensor IoT Project Kit', 'Lab & Circuit Kits', 380.00, 'Neatly Used', 'Gold Refinery Hall, Tarkwa', 'Includes breadboard, jumper wires, ultrasonic, current sensor (ACS712), relay module, and OLED screen.', 'Daniel Boateng', '0553 419 208', '400', 'Available'],
+        ['White Engineering Lab Coat + Insulated Safety Gloves', 'Safety & Apparel', 150.00, 'Brand New', 'KT Hall / Main Campus', 'Heavy-duty cotton laboratory coat (Size L) with IEC-rated electrical bench gloves.', 'Abena Osei', '0208 664 112', '200', 'Available'],
+        ['Sadiku Fundamentals of Electric Circuits (6th Ed. Hardcopy)', 'Textbooks', 190.00, 'Neatly Used', 'New Site, Tarkwa', 'Clean copy with solved past tutorial sheets for EL 151 and EL 251.', 'Emmanuel Quansah', '0277 903 541', '300', 'Available'],
+        ['PCB Etching, Soldering & Proteus Simulation Tutoring', 'Student Services', 60.00, 'Service', 'Electronics Lab Wing', 'One-on-one help with schematic capture, PCB layout, and microcontroller firmware debugging.', 'Priscilla Donkor', '0541 229 874', '400', 'Available']
+      ];
+      for (const it of items) {
+        await pool.query(
+          `INSERT INTO public.eleesa_store_items
+           (title, category, price_ghs, condition, location, description, seller_name, seller_contact, seller_level, status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          it
+        );
+      }
+    }
+  } catch (e) {
+    console.error('Wave 4 store seed warning:', e.message);
+  }
+
+  try {
+    const pCnt = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.eleesa_directory_people');
+    if ((pCnt.rows[0]?.cnt ?? 0) === 0) {
+      const people = [
+        ['Prof. J. K. Gyimah', 'Lecturer', 'Head of Department (HoD)', 'High Voltage Engineering & Power Systems Protection', 'jgyimah@umat.edu.gh', '+233 312 320 324'],
+        ['Dr. M. Asante', 'Lecturer', 'Senior Lecturer', 'Control Systems & Industrial Instrumentation', 'masante@umat.edu.gh', '+233 244 510 112'],
+        ['Ing. R. Darko', 'Lecturer', 'Lecturer & Lab Coordinator', 'Power Electronics, Drives & PLC Automation', 'rdarko@umat.edu.gh', '+233 208 771 904'],
+        ['Dr. K. Mensah', 'Lecturer', 'Lecturer', 'Applied Electricity & Machine Condition Monitoring', 'kmensah@umat.edu.gh', '+233 554 309 821'],
+        ['Maxwell Amoah', 'Student', 'Level 300', 'Power Systems, Embedded IoT & Full-Stack Engineering', 'maxwell.amoah@st.umat.edu.gh', '+233 540 000 300'],
+        ['Kwame Mensah', 'Executive', 'ELEESA President (Level 400)', 'Smart Grid & Renewable Microgrids', 'president@eleesa-umat.org', '+233 244 812 390'],
+        ['Abena Osei', 'Executive', 'ELEESA General Secretary (Level 300)', 'Telecommunications & RF Systems', 'secretary@eleesa-umat.org', '+233 208 664 112'],
+        ['Ing. Samuel Owusu-Ansah', 'Alumni', 'Class of 2022 • GRIDCo Protection Engineer', '161kV/330kV Substation Protection & SCADA', 's.owusu@gridcogh.com', '+233 243 998 410']
+      ];
+      for (const per of people) {
+        await pool.query(
+          `INSERT INTO public.eleesa_directory_people
+           (full_name, role_group, title_or_level, specialty_or_portfolio, email, phone)
+           VALUES ($1,$2,$3,$4,$5,$6)`,
+          per
+        );
+      }
+    }
+  } catch (e) {
+    console.error('Wave 4 people seed warning:', e.message);
+  }
+}
+
+app.get('/api/wave4/notices', async (req, res) => {
+  await ensureWave4Ready();
+  try {
+    const result = await pool.query('SELECT * FROM public.eleesa_notices ORDER BY notice_id DESC');
+    res.json({ notices: result.rows });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post('/api/wave4/notices', async (req, res) => {
+  await ensureWave4Ready();
+  const { title, category, event_date, venue, body, posted_by, poster_role } = req.body || {};
+  if (!title || !body || !posted_by) {
+    return res.status(400).json({ message: 'title, body, and posted_by are required.' });
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO public.eleesa_notices (title, category, event_date, venue, body, posted_by, poster_role, rsvp_count)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,1) RETURNING *`,
+      [
+        title.trim(),
+        String(category || 'Department Notice').trim(),
+        String(event_date || '').trim(),
+        String(venue || 'UMaT Engineering Block').trim(),
+        body.trim(),
+        posted_by.trim(),
+        String(poster_role || 'executive').trim()
+      ]
+    );
+    res.status(201).json({ notice: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post('/api/wave4/notices/:id/rsvp', async (req, res) => {
+  await ensureWave4Ready();
+  const id = parseInt(req.params.id, 10);
+  try {
+    const result = await pool.query(
+      'UPDATE public.eleesa_notices SET rsvp_count = rsvp_count + 1 WHERE notice_id = $1 RETURNING *',
+      [id]
+    );
+    res.json({ notice: result.rows[0] || null });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.get('/api/wave4/store', async (req, res) => {
+  await ensureWave4Ready();
+  try {
+    const result = await pool.query('SELECT * FROM public.eleesa_store_items ORDER BY item_id DESC');
+    res.json({ items: result.rows });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post('/api/wave4/store', async (req, res) => {
+  await ensureWave4Ready();
+  const { title, category, price_ghs, condition, location, description, seller_name, seller_contact, seller_level } = req.body || {};
+  if (!title || !seller_name || !seller_contact) {
+    return res.status(400).json({ message: 'title, seller_name, and seller_contact are required.' });
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO public.eleesa_store_items
+       (title, category, price_ghs, condition, location, description, seller_name, seller_contact, seller_level, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Available') RETURNING *`,
+      [
+        title.trim(),
+        String(category || 'Lab & Circuit Kits').trim(),
+        Number(price_ghs) || 0,
+        String(condition || 'Neatly Used').trim(),
+        String(location || 'Tarkwa Campus').trim(),
+        String(description || '').trim(),
+        seller_name.trim(),
+        seller_contact.trim(),
+        String(seller_level || '300').trim()
+      ]
+    );
+    res.status(201).json({ item: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.patch('/api/wave4/store/:id/status', async (req, res) => {
+  await ensureWave4Ready();
+  const id = parseInt(req.params.id, 10);
+  const status = String(req.body?.status || 'Sold').trim();
+  try {
+    const result = await pool.query(
+      'UPDATE public.eleesa_store_items SET status = $1 WHERE item_id = $2 RETURNING *',
+      [status, id]
+    );
+    res.json({ item: result.rows[0] || null });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.get('/api/wave4/people', async (req, res) => {
+  await ensureWave4Ready();
+  try {
+    const dirRes = await pool.query('SELECT * FROM public.eleesa_directory_people ORDER BY person_id ASC');
+    res.json({ people: dirRes.rows });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+// ==================== END WAVE 4 ====================
+
 const activeHttpServer = app.listen(PORT, (err) => {
   if (err) {
     console.error('Failed to start server:', err.message);
