@@ -1129,6 +1129,18 @@ app.get('/api/public/visitor-hub', async (req, res) => {
 
 // 5. Start Server & Verify Database Connection
 const server = 
+let _wave2ReadyPromise = null;
+function ensureWave2Ready() {
+  if (!_wave2ReadyPromise) {
+    _wave2ReadyPromise = ensureWave2AcademicSchema().catch((err) => {
+      _wave2ReadyPromise = null;
+      console.error('Wave 2 schema error:', err.message);
+      throw err;
+    });
+  }
+  return _wave2ReadyPromise;
+}
+
 async function ensureWave2AcademicSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.department_info (
@@ -1197,8 +1209,8 @@ async function ensureWave2AcademicSchema() {
         ADD COLUMN IF NOT EXISTS courses_taught TEXT DEFAULT 'Core EEE Modules',
         ADD COLUMN IF NOT EXISTS research_interests TEXT DEFAULT 'Power Systems, Control & Embedded Electronics'
     `);
-  } catch (alterErr) {
-    console.error('staff_profiles alter skipped:', alterErr.message);
+  } catch (e) {
+    console.error('staff_profiles alter skipped:', e.message);
   }
 
   const deptCheck = await pool.query('SELECT id FROM public.department_info WHERE id = 1');
@@ -1291,7 +1303,7 @@ async function ensureWave2AcademicSchema() {
 
 // GET /api/academic/overview (Item #1: Home Dashboard Live Feed)
 app.get('/api/academic/overview', async (req, res) => {
-  await getGridSchemaReady();
+  await ensureWave2Ready();
   const level = String(req.query.level || '100').trim();
   try {
     const [deptRes, ttRes, calRes, courseRes] = await Promise.all([
@@ -1324,7 +1336,7 @@ app.get('/api/academic/overview', async (req, res) => {
 
 // POST /api/academic/department-info (Item #2: HoD Edit About Department)
 app.post('/api/academic/department-info', async (req, res) => {
-  await getGridSchemaReady();
+  await ensureWave2Ready();
   const {
     requester_email,
     department_name,
@@ -1384,7 +1396,7 @@ app.post('/api/academic/department-info', async (req, res) => {
 
 // GET /api/academic/courses & POST /api/academic/courses (Item #4)
 app.get('/api/academic/courses', async (req, res) => {
-  await getGridSchemaReady();
+  await ensureWave2Ready();
   try {
     const result = await pool.query(
       'SELECT * FROM public.eleesa_courses ORDER BY level ASC, semester ASC, course_code ASC'
@@ -1396,7 +1408,7 @@ app.get('/api/academic/courses', async (req, res) => {
 });
 
 app.post('/api/academic/courses', async (req, res) => {
-  await getGridSchemaReady();
+  await ensureWave2Ready();
   const {
     requester_email,
     course_code,
@@ -1460,7 +1472,7 @@ app.post('/api/academic/courses', async (req, res) => {
 
 // GET & POST /api/academic/timetable & /api/academic/calendar (Item #5)
 app.get('/api/academic/timetable', async (req, res) => {
-  await getGridSchemaReady();
+  await ensureWave2Ready();
   try {
     const [ttRes, calRes] = await Promise.all([
       pool.query('SELECT * FROM public.eleesa_timetables ORDER BY level ASC, entry_id ASC'),
@@ -1476,7 +1488,7 @@ app.get('/api/academic/timetable', async (req, res) => {
 });
 
 app.post('/api/academic/timetable', async (req, res) => {
-  await getGridSchemaReady();
+  await ensureWave2Ready();
   const {
     requester_email,
     entry_type,
@@ -1521,7 +1533,7 @@ app.post('/api/academic/timetable', async (req, res) => {
 });
 
 app.post('/api/academic/calendar', async (req, res) => {
-  await getGridSchemaReady();
+  await ensureWave2Ready();
   const { requester_email, title, category, event_date, target_level, description } = req.body;
 
   try {
@@ -1553,7 +1565,7 @@ app.post('/api/academic/calendar', async (req, res) => {
 
 // POST /api/academic/staff-update (Item #3: Lecturer/HoD Staff Card Editor)
 app.post('/api/academic/staff-update', async (req, res) => {
-  await getGridSchemaReady();
+  await ensureWave2Ready();
   const {
     requester_email,
     target_email,
