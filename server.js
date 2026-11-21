@@ -1325,6 +1325,7 @@ app.get('/api/academic/overview', async (req, res) => {
     console.error('department_info migration warning:', e.message);
   }
   await ensureWave2Ready();
+  await seedWave2DefaultsIfEmpty();
   const level = String(req.query.level || '100').trim();
   try {
     
@@ -1430,6 +1431,29 @@ app.post('/api/academic/department-info', async (req, res) => {
 
 // GET /api/academic/courses & POST /api/academic/courses (Item #4)
 async function seedWave2DefaultsIfEmpty() {
+  try {
+    await pool.query(`
+      ALTER TABLE public.eleesa_timetables
+        ADD COLUMN IF NOT EXISTS entry_type VARCHAR(20) DEFAULT 'lecture',
+        ADD COLUMN IF NOT EXISTS level VARCHAR(10) DEFAULT '100',
+        ADD COLUMN IF NOT EXISTS day_or_date VARCHAR(60) DEFAULT 'Monday',
+        ADD COLUMN IF NOT EXISTS time_slot VARCHAR(60) DEFAULT '08:00 AM – 10:00 AM',
+        ADD COLUMN IF NOT EXISTS course_code VARCHAR(30) DEFAULT 'EL 151',
+        ADD COLUMN IF NOT EXISTS course_title VARCHAR(200) DEFAULT 'Core EEE Course',
+        ADD COLUMN IF NOT EXISTS venue VARCHAR(120) DEFAULT 'Engineering Block',
+        ADD COLUMN IF NOT EXISTS lecturer_or_invigilator VARCHAR(150) DEFAULT 'Faculty Staff'
+    `);
+    await pool.query(`
+      ALTER TABLE public.academic_calendar
+        ADD COLUMN IF NOT EXISTS title VARCHAR(200) DEFAULT 'Academic Milestone',
+        ADD COLUMN IF NOT EXISTS category VARCHAR(40) DEFAULT 'Academic',
+        ADD COLUMN IF NOT EXISTS event_date VARCHAR(80) DEFAULT 'TBA',
+        ADD COLUMN IF NOT EXISTS target_level VARCHAR(20) DEFAULT 'ALL',
+        ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''
+    `);
+  } catch (alterWave2Err) {
+    console.error('Wave 2 timetable/calendar alter warning:', alterWave2Err.message);
+  }
   try {
     const deptRes = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.department_info');
     if ((deptRes.rows[0]?.cnt ?? 0) === 0) {
