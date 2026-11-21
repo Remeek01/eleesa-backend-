@@ -1128,7 +1128,6 @@ app.get('/api/public/visitor-hub', async (req, res) => {
 });
 
 // 5. Start Server & Verify Database Connection
-const server = 
 let _wave2ReadyPromise = null;
 function ensureWave2Ready() {
   if (!_wave2ReadyPromise) {
@@ -1140,19 +1139,6 @@ function ensureWave2Ready() {
   }
   return _wave2ReadyPromise;
 }
-
-let _wave2ReadyPromise = null;
-function ensureWave2Ready() {
-  if (!_wave2ReadyPromise) {
-    _wave2ReadyPromise = ensureWave2AcademicSchema().catch((err) => {
-      _wave2ReadyPromise = null;
-      console.error('Wave 2 schema error:', err.message);
-      throw err;
-    });
-  }
-  return _wave2ReadyPromise;
-}
-
 async function ensureWave2AcademicSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.department_info (
