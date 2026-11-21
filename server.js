@@ -694,6 +694,7 @@ getGridSchemaReady().catch(() => {});
 // GET /api/profile?email=...
 app.get('/api/profile', async (req, res) => {
   await getGridSchemaReady();
+  await getGridSchemaReady();
   const email = String(req.query.email || '').trim().toLowerCase();
   if (!email) {
     return res.status(400).json({ message: 'Email is required.' });
@@ -774,6 +775,7 @@ app.get('/api/profile', async (req, res) => {
 
 // POST /api/profile/save (Routes student into level_100..400 or staff into staff_profiles)
 app.post('/api/profile/save', async (req, res) => {
+  await getGridSchemaReady();
   await getGridSchemaReady();
   const {
     email,
@@ -932,6 +934,7 @@ app.post('/api/profile/save', async (req, res) => {
 // GET /api/hub/students-by-level?requester_email=... (Lecturer & HoD Only)
 app.get('/api/hub/students-by-level', async (req, res) => {
   await getGridSchemaReady();
+  await getGridSchemaReady();
   const requesterEmail = String(req.query.requester_email || '').trim().toLowerCase();
   if (!requesterEmail) {
     return res.status(400).json({ message: 'Requester email is required.' });
@@ -984,6 +987,7 @@ app.get('/api/hub/students-by-level', async (req, res) => {
 
 // GET /api/hub/staff-directory?requester_email=... (HoD & Lecturer Directory)
 app.get('/api/hub/staff-directory', async (req, res) => {
+  await getGridSchemaReady();
   await getGridSchemaReady();
   const requesterEmail = String(req.query.requester_email || '').trim().toLowerCase();
   try {
