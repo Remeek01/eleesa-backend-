@@ -1144,8 +1144,10 @@ async function ensureWave2AcademicSchema() {
       mission TEXT NOT NULL,
       hod_message TEXT NOT NULL,
       updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
+    )
+  `);
 
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS public.eleesa_courses (
       course_id SERIAL PRIMARY KEY,
       course_code VARCHAR(30) UNIQUE NOT NULL,
@@ -1158,8 +1160,10 @@ async function ensureWave2AcademicSchema() {
       lecturer_name VARCHAR(150) NOT NULL,
       lecturer_email VARCHAR(150),
       updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
+    )
+  `);
 
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS public.eleesa_timetables (
       entry_id SERIAL PRIMARY KEY,
       entry_type VARCHAR(20) NOT NULL DEFAULT 'lecture',
@@ -1171,8 +1175,10 @@ async function ensureWave2AcademicSchema() {
       venue VARCHAR(120) NOT NULL,
       lecturer_or_invigilator VARCHAR(150) NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW()
-    );
+    )
+  `);
 
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS public.academic_calendar (
       event_id SERIAL PRIMARY KEY,
       title VARCHAR(200) NOT NULL,
@@ -1181,13 +1187,19 @@ async function ensureWave2AcademicSchema() {
       target_level VARCHAR(20) NOT NULL DEFAULT 'ALL',
       description TEXT NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-
-    ALTER TABLE public.staff_profiles
-      ADD COLUMN IF NOT EXISTS office_location VARCHAR(150) DEFAULT 'Engineering Block, 2nd Floor',
-      ADD COLUMN IF NOT EXISTS courses_taught TEXT DEFAULT 'Core EEE Modules',
-      ADD COLUMN IF NOT EXISTS research_interests TEXT DEFAULT 'Power Systems, Control & Embedded Electronics';
+    )
   `);
+
+  try {
+    await pool.query(`
+      ALTER TABLE public.staff_profiles
+        ADD COLUMN IF NOT EXISTS office_location VARCHAR(150) DEFAULT 'Engineering Block, 2nd Floor',
+        ADD COLUMN IF NOT EXISTS courses_taught TEXT DEFAULT 'Core EEE Modules',
+        ADD COLUMN IF NOT EXISTS research_interests TEXT DEFAULT 'Power Systems, Control & Embedded Electronics'
+    `);
+  } catch (alterErr) {
+    console.error('staff_profiles alter skipped:', alterErr.message);
+  }
 
   const deptCheck = await pool.query('SELECT id FROM public.department_info WHERE id = 1');
   if (deptCheck.rows.length === 0) {
