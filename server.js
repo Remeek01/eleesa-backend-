@@ -641,7 +641,7 @@ async function ensureEleesaGridSchema() {
       await pool.query(`
         CREATE TABLE IF NOT EXISTS public.${tableName} (
           student_record_id SERIAL PRIMARY KEY,
-          user_id INTEGER UNIQUE NOT NULL REFERENCES public.users(user_id) ON DELETE CASCADE,
+          user_id VARCHAR(100) UNIQUE NOT NULL,
           full_name VARCHAR(150) NOT NULL,
           email VARCHAR(150) NOT NULL,
           index_number VARCHAR(50) NOT NULL,
@@ -659,7 +659,7 @@ async function ensureEleesaGridSchema() {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS public.staff_profiles (
         staff_record_id SERIAL PRIMARY KEY,
-        user_id INTEGER UNIQUE NOT NULL REFERENCES public.users(user_id) ON DELETE CASCADE,
+        user_id VARCHAR(100) UNIQUE NOT NULL,
         full_name VARCHAR(150) NOT NULL,
         email VARCHAR(150) NOT NULL,
         role VARCHAR(30) NOT NULL,
@@ -676,13 +676,24 @@ async function ensureEleesaGridSchema() {
     `);
     console.log('ELEESA 4-level & encrypted staff tables verified.');
   } catch (err) {
-    console.error('Schema initialization warning:', err.message);
+    console.error('Schema initialization error:', err.message); throw err;
   }
 }
-ensureEleesaGridSchema();
+let _gridSchemaPromise = null;
+function getGridSchemaReady() {
+  if (!_gridSchemaPromise) {
+    _gridSchemaPromise = ensureEleesaGridSchema().catch((err) => {
+      _gridSchemaPromise = null;
+      throw err;
+    });
+  }
+  return _gridSchemaPromise;
+}
+getGridSchemaReady().catch(() => {});
 
 // GET /api/profile?email=...
 app.get('/api/profile', async (req, res) => {
+  await getGridSchemaReady();
   const email = String(req.query.email || '').trim().toLowerCase();
   if (!email) {
     return res.status(400).json({ message: 'Email is required.' });
@@ -709,7 +720,7 @@ app.get('/api/profile', async (req, res) => {
         const tbl = LEVEL_TABLES[lvl];
         const rowRes = await pool.query(
           `SELECT * FROM public.${tbl} WHERE user_id = $1`,
-          [user.user_id]
+          [String(user.user_id)]
         );
         if (rowRes.rows.length > 0) {
           const r = rowRes.rows[0];
@@ -733,7 +744,7 @@ app.get('/api/profile', async (req, res) => {
     } else {
       const staffRes = await pool.query(
         'SELECT * FROM public.staff_profiles WHERE user_id = $1',
-        [user.user_id]
+        [String(user.user_id)]
       );
       if (staffRes.rows.length > 0) {
         const s = staffRes.rows[0];
@@ -763,6 +774,7 @@ app.get('/api/profile', async (req, res) => {
 
 // POST /api/profile/save (Routes student into level_100..400 or staff into staff_profiles)
 app.post('/api/profile/save', async (req, res) => {
+  await getGridSchemaReady();
   const {
     email,
     full_name,
@@ -819,7 +831,7 @@ app.post('/api/profile/save', async (req, res) => {
 
       for (const [lvlKey, tblName] of Object.entries(LEVEL_TABLES)) {
         if (lvlKey !== cleanLevel) {
-          await client.query(`DELETE FROM public.${tblName} WHERE user_id = $1`, [user_id]);
+          await client.query(`DELETE FROM public.${tblName} WHERE user_id = $1`, [String(user_id)]);
         }
       }
 
@@ -919,6 +931,7 @@ app.post('/api/profile/save', async (req, res) => {
 
 // GET /api/hub/students-by-level?requester_email=... (Lecturer & HoD Only)
 app.get('/api/hub/students-by-level', async (req, res) => {
+  await getGridSchemaReady();
   const requesterEmail = String(req.query.requester_email || '').trim().toLowerCase();
   if (!requesterEmail) {
     return res.status(400).json({ message: 'Requester email is required.' });
@@ -971,6 +984,7 @@ app.get('/api/hub/students-by-level', async (req, res) => {
 
 // GET /api/hub/staff-directory?requester_email=... (HoD & Lecturer Directory)
 app.get('/api/hub/staff-directory', async (req, res) => {
+  await getGridSchemaReady();
   const requesterEmail = String(req.query.requester_email || '').trim().toLowerCase();
   try {
     const authRes = await pool.query(
