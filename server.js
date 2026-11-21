@@ -1327,7 +1327,9 @@ app.get('/api/academic/overview', async (req, res) => {
   await ensureWave2Ready();
   const level = String(req.query.level || '100').trim();
   try {
-    const [deptRes, ttRes, calRes, courseRes] = await Promise.all([
+    
+  await seedWave2DefaultsIfEmpty();
+  const [deptRes, ttRes, calRes, courseRes] = await Promise.all([
       pool.query('SELECT * FROM public.department_info ORDER BY id ASC NULLS LAST LIMIT 1'),
       pool.query(
         `SELECT * FROM public.eleesa_timetables
@@ -1629,6 +1631,8 @@ app.post('/api/academic/courses', async (req, res) => {
 
 // GET & POST /api/academic/timetable & /api/academic/calendar (Item #5)
 app.get('/api/academic/timetable', async (req, res) => {
+  await ensureWave2Ready();
+  await seedWave2DefaultsIfEmpty();
   await ensureWave2Ready();
   await seedWave2DefaultsIfEmpty();
   try {
