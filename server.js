@@ -1303,6 +1303,92 @@ console.error('Wave 2 seed warning:', seedErr.message);
 }
 }
 // GET /api/academic/overview (Item #1: Home Dashboard Live Feed)
+async function ensureTimetableAndCalendarSeeded() {
+  const diagnostics = { timetableError: null, calendarError: null, timetableCount: 0, calendarCount: 0 };
+
+  try {
+    await pool.query(`
+      CREATE SEQUENCE IF NOT EXISTS public.eleesa_timetables_entry_id_seq;
+      ALTER TABLE public.eleesa_timetables
+        ALTER COLUMN entry_id SET DEFAULT nextval('public.eleesa_timetables_entry_id_seq');
+      SELECT setval('public.eleesa_timetables_entry_id_seq', COALESCE((SELECT MAX(entry_id) FROM public.eleesa_timetables), 0) + 1, false);
+    `);
+  } catch (e) {
+    diagnostics.timetableError = 'seq: ' + e.message;
+  }
+
+  try {
+    await pool.query(`
+      CREATE SEQUENCE IF NOT EXISTS public.academic_calendar_event_id_seq;
+      ALTER TABLE public.academic_calendar
+        ALTER COLUMN event_id SET DEFAULT nextval('public.academic_calendar_event_id_seq');
+      SELECT setval('public.academic_calendar_event_id_seq', COALESCE((SELECT MAX(event_id) FROM public.academic_calendar), 0) + 1, false);
+    `);
+  } catch (e) {
+    diagnostics.calendarError = 'seq: ' + e.message;
+  }
+
+  try {
+    const tRes = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.eleesa_timetables');
+    let cnt = tRes.rows[0]?.cnt ?? 0;
+    if (cnt === 0) {
+      const seedSlots = [
+        ['lecture', '100', 'Monday', '08:00 AM – 10:00 AM', 'EL 151', 'Applied Electricity & Circuit Fundamentals', 'LT 1 (Main Block)', 'Dr. K. Mensah'],
+        ['lecture', '200', 'Monday', '10:30 AM – 12:30 PM', 'EL 251', 'Electromagnetic Field Theory', 'LT 2 (Eng. Block)', 'Dr. E. Osei-Tutu'],
+        ['lecture', '300', 'Monday', '08:00 AM – 10:00 AM', 'EL 351', 'Control Systems Engineering', 'EEE Lecture Room 3', 'Dr. M. Asante'],
+        ['lecture', '300', 'Wednesday', '01:30 PM – 03:30 PM', 'EL 353', 'Power Systems Analysis & Protection', 'Power Lab Seminar Room', 'Prof. J. K. Gyimah'],
+        ['lecture', '400', 'Tuesday', '09:00 AM – 11:00 AM', 'EL 451', 'High Voltage Engineering & Substations', 'High Voltage Wing', 'Prof. J. K. Gyimah'],
+        ['exam', '300', 'Dec 08, 2026', '09:00 AM – 12:00 PM', 'EL 351', 'Control Systems Engineering', 'Main Auditorium Hall A', 'Dr. M. Asante'],
+        ['exam', '300', 'Dec 11, 2026', '09:00 AM – 12:00 PM', 'EL 353', 'Power Systems Analysis & Protection', 'Main Auditorium Hall A', 'Prof. J. K. Gyimah'],
+        ['exam', '100', 'Dec 07, 2026', '09:00 AM – 12:00 PM', 'EL 151', 'Applied Electricity & Circuit Fundamentals', 'Engineering Exam Hall', 'Dr. K. Mensah'],
+        ['exam', '200', 'Dec 09, 2026', '02:00 PM – 05:00 PM', 'EL 251', 'Electromagnetic Field Theory', 'Engineering Exam Hall', 'Dr. E. Osei-Tutu'],
+        ['exam', '400', 'Dec 10, 2026', '09:00 AM – 12:00 PM', 'EL 451', 'High Voltage Engineering & Substations', 'Main Auditorium Hall B', 'Prof. J. K. Gyimah']
+      ];
+      for (const s of seedSlots) {
+        await pool.query(
+          `INSERT INTO public.eleesa_timetables
+           (entry_type, level, day_or_date, time_slot, course_code, course_title, venue, lecturer_or_invigilator)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          s
+        );
+      }
+      const afterT = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.eleesa_timetables');
+      cnt = afterT.rows[0]?.cnt ?? 0;
+    }
+    diagnostics.timetableCount = cnt;
+  } catch (e) {
+    diagnostics.timetableError = e.message;
+  }
+
+  try {
+    const calRes = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.academic_calendar');
+    let cnt = calRes.rows[0]?.cnt ?? 0;
+    if (cnt === 0) {
+      const seedEvents = [
+        ['Course Registration & Add/Drop Window Closes', 'Deadline', 'Nov 28, 2026', 'ALL', 'Final deadline for confirming Semester 1 courses on the student portal.'],
+        ['Mid-Semester Practical & Lab Assessment Week', 'Academic', 'Dec 01 – Dec 04, 2026', 'ALL', 'Mandatory laboratory practical evaluations across Machines, Power, and Electronics labs.'],
+        ['End-of-Semester Written Examinations', 'Exams', 'Dec 07 – Dec 18, 2026', 'ALL', 'University-wide end-of-semester examinations. Bring student ID and approved non-programmable calculators.'],
+        ['Final-Year Project Topic Defense', 'Deadline', 'Dec 15, 2026', '400', 'Level 400 students present project problem statements and block diagrams to faculty supervisors.'],
+        ['Inter-Semester Break & Industrial Attachment Prep', 'Holiday', 'Dec 21, 2026 – Jan 10, 2027', 'ALL', 'Semester break and industrial placement letter collection at the departmental office.']
+      ];
+      for (const ev of seedEvents) {
+        await pool.query(
+          `INSERT INTO public.academic_calendar (title, category, event_date, target_level, description)
+           VALUES ($1,$2,$3,$4,$5)`,
+          ev
+        );
+      }
+      const afterC = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.academic_calendar');
+      cnt = afterC.rows[0]?.cnt ?? 0;
+    }
+    diagnostics.calendarCount = cnt;
+  } catch (e) {
+    diagnostics.calendarError = e.message;
+  }
+
+  return diagnostics;
+}
+
 app.get('/api/academic/overview', async (req, res) => {
   try {
     await pool.query(`
@@ -1330,6 +1416,7 @@ app.get('/api/academic/overview', async (req, res) => {
   try {
     
   await seedWave2DefaultsIfEmpty();
+  const seedDiagnostics = await ensureTimetableAndCalendarSeeded();
   const [deptRes, ttRes, calRes, courseRes] = await Promise.all([
       pool.query('SELECT * FROM public.department_info ORDER BY id ASC NULLS LAST LIMIT 1'),
       pool.query(
@@ -1362,6 +1449,7 @@ app.get('/api/academic/overview', async (req, res) => {
       },
       schedule: ttRes.rows,
       calendar: calRes.rows,
+      seedDiagnostics,
       course_count: courseRes.rows[0]?.total || 0,
     });
   } catch (err) {
@@ -1648,6 +1736,7 @@ app.get('/api/academic/timetable', async (req, res) => {
     res.json({
       timetables: ttRes.rows,
       calendar: calRes.rows,
+      seedDiagnostics,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
