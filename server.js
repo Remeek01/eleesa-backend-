@@ -684,7 +684,7 @@ async function ensureEleesaGridSchema() {
 let _gridSchemaPromise = null;
 function getGridSchemaReady() {
   if (!_gridSchemaPromise) {
-    _gridSchemaPromise = ensureEleesaGridSchema().catch((err) => {
+    _gridSchemaPromise = Promise.all([ensureEleesaGridSchema(), ensureWave2AcademicSchema()]).catch((err) => {
       _gridSchemaPromise = null;
       throw err;
     });
@@ -1111,7 +1111,469 @@ app.get('/api/public/visitor-hub', async (req, res) => {
 });
 
 // 5. Start Server & Verify Database Connection
-const server = app.listen(PORT, (err) => {
+const server = 
+async function ensureWave2AcademicSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.department_info (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      department_name VARCHAR(200) NOT NULL,
+      institution VARCHAR(200) NOT NULL,
+      location VARCHAR(250) NOT NULL,
+      office_hours VARCHAR(150) NOT NULL,
+      contact_email VARCHAR(150),
+      contact_phone VARCHAR(80),
+      history TEXT NOT NULL,
+      vision TEXT NOT NULL,
+      mission TEXT NOT NULL,
+      hod_message TEXT NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS public.eleesa_courses (
+      course_id SERIAL PRIMARY KEY,
+      course_code VARCHAR(30) UNIQUE NOT NULL,
+      course_title VARCHAR(200) NOT NULL,
+      level VARCHAR(10) NOT NULL,
+      semester VARCHAR(10) NOT NULL,
+      credit_hours INTEGER NOT NULL DEFAULT 3,
+      prerequisites VARCHAR(200) DEFAULT 'None',
+      syllabus TEXT NOT NULL,
+      lecturer_name VARCHAR(150) NOT NULL,
+      lecturer_email VARCHAR(150),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS public.eleesa_timetables (
+      entry_id SERIAL PRIMARY KEY,
+      entry_type VARCHAR(20) NOT NULL DEFAULT 'lecture',
+      level VARCHAR(10) NOT NULL,
+      day_or_date VARCHAR(60) NOT NULL,
+      time_slot VARCHAR(60) NOT NULL,
+      course_code VARCHAR(30) NOT NULL,
+      course_title VARCHAR(200) NOT NULL,
+      venue VARCHAR(120) NOT NULL,
+      lecturer_or_invigilator VARCHAR(150) NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS public.academic_calendar (
+      event_id SERIAL PRIMARY KEY,
+      title VARCHAR(200) NOT NULL,
+      category VARCHAR(40) NOT NULL DEFAULT 'Academic',
+      event_date VARCHAR(80) NOT NULL,
+      target_level VARCHAR(20) NOT NULL DEFAULT 'ALL',
+      description TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    ALTER TABLE public.staff_profiles
+      ADD COLUMN IF NOT EXISTS office_location VARCHAR(150) DEFAULT 'Engineering Block, 2nd Floor',
+      ADD COLUMN IF NOT EXISTS courses_taught TEXT DEFAULT 'Core EEE Modules',
+      ADD COLUMN IF NOT EXISTS research_interests TEXT DEFAULT 'Power Systems, Control & Embedded Electronics';
+  `);
+
+  const deptCheck = await pool.query('SELECT id FROM public.department_info WHERE id = 1');
+  if (deptCheck.rows.length === 0) {
+    await pool.query(
+      `INSERT INTO public.department_info
+       (id, department_name, institution, location, office_hours, contact_email, contact_phone, history, vision, mission, hod_message)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [
+        1,
+        'Department of Electrical & Electronic Engineering',
+        'University of Mines and Technology (UMaT)',
+        'Faculty of Engineering Block, UMaT Main Campus, Tarkwa',
+        'Monday – Friday • 8:00 AM – 5:00 PM GMT',
+        'eee.dept@umat.edu.gh',
+        '+233 (0) 312 320 324',
+        'Established to train world-class electrical and electronic engineers for Ghana’s power, mining, telecommunications, and industrial automation sectors, the department combines analytical theory with hands-on laboratory and substation training.',
+        'To be a premier centre of excellence in Electrical and Electronic Engineering education, sustainable energy systems, and applied technological innovation across Africa.',
+        'To produce ethically grounded, industry-ready engineers equipped with strong problem-solving, research, and leadership capabilities through modern laboratories and industry partnerships.',
+        'Welcome to the ELEESA Digital Grid. Whether you are a student, lecturer, or visitor, this hub connects our lecture halls, laboratories, and research groups into one unified engineering workspace.'
+      ]
+    );
+  }
+
+  const courseCount = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.eleesa_courses');
+  if (courseCount.rows[0].cnt === 0) {
+    const seedCourses = [
+      ['EL 151', 'Applied Electricity & Circuit Fundamentals', '100', '1', 3, 'None', 'DC/AC network theorems, mesh and nodal analysis, phasors, resonance, and single-phase power circuits.', 'Dr. K. Mensah', 'kmensah@umat.edu.gh'],
+      ['EL 152', 'Basic Electronics & Semiconductor Devices', '100', '2', 3, 'EL 151', 'PN junction diodes, rectifiers, BJT and MOSFET biasing, small-signal amplifiers, and operational amplifier basics.', 'Ing. A. Boateng', 'aboateng@umat.edu.gh'],
+      ['EL 251', 'Electromagnetic Field Theory', '200', '1', 3, 'EL 151', 'Vector calculus, electrostatics, magnetostatics, Faraday’s law, Maxwell’s equations, and transmission line fundamentals.', 'Dr. E. Osei-Tutu', 'eoseitutu@umat.edu.gh'],
+      ['EL 254', 'Digital Logic & Microprocessor Systems', '200', '2', 3, 'EL 152', 'Boolean algebra, combinational and sequential logic design, VHDL basics, and 8-bit/32-bit microcontroller architecture.', 'Ing. S. Owusu', 'sowusu@umat.edu.gh'],
+      ['EL 351', 'Control Systems Engineering', '300', '1', 3, 'EL 251', 'Transfer functions, state-space modeling, time-domain stability, Routh-Hurwitz criterion, root locus, and Bode/Nyquist frequency design.', 'Dr. M. Asante', 'masante@umat.edu.gh'],
+      ['EL 353', 'Power Systems Analysis & Protection', '300', '1', 3, 'EL 251', 'Per-unit system, symmetrical components, load flow studies (Gauss-Seidel & Newton-Raphson), fault analysis, and relay coordination.', 'Prof. J. K. Gyimah', 'jkgyimah@umat.edu.gh'],
+      ['EL 356', 'Power Electronics & Electric Drives', '300', '2', 3, 'EL 152, EL 353', 'Controlled rectifiers, DC-DC choppers, PWM inverters, and variable-speed induction/DC motor drives.', 'Ing. R. Darko', 'rdarko@umat.edu.gh'],
+      ['EL 451', 'High Voltage Engineering & Substations', '400', '1', 3, 'EL 353', 'Dielectric breakdown mechanisms, surge arresters, insulation coordination, switchgear, and primary substation design.', 'Prof. J. K. Gyimah', 'jkgyimah@umat.edu.gh'],
+      ['EL 454', 'Industrial Automation & SCADA Systems', '400', '2', 3, 'EL 351', 'PLC ladder logic programming, industrial fieldbuses, SCADA telemetry, and smart grid instrumentation.', 'Dr. M. Asante', 'masante@umat.edu.gh']
+    ];
+    for (const c of seedCourses) {
+      await pool.query(
+        `INSERT INTO public.eleesa_courses
+         (course_code, course_title, level, semester, credit_hours, prerequisites, syllabus, lecturer_name, lecturer_email)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (course_code) DO NOTHING`,
+        c
+      );
+    }
+  }
+
+  const ttCount = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.eleesa_timetables');
+  if (ttCount.rows[0].cnt === 0) {
+    const seedSlots = [
+      ['lecture', '100', 'Monday', '08:00 AM – 10:00 AM', 'EL 151', 'Applied Electricity & Circuit Fundamentals', 'LT 1 (Main Block)', 'Dr. K. Mensah'],
+      ['lecture', '200', 'Monday', '10:30 AM – 12:30 PM', 'EL 251', 'Electromagnetic Field Theory', 'LT 2 (Eng. Block)', 'Dr. E. Osei-Tutu'],
+      ['lecture', '300', 'Monday', '08:00 AM – 10:00 AM', 'EL 351', 'Control Systems Engineering', 'EEE Lecture Room 3', 'Dr. M. Asante'],
+      ['lecture', '300', 'Wednesday', '01:30 PM – 03:30 PM', 'EL 353', 'Power Systems Analysis & Protection', 'Power Lab Seminar Room', 'Prof. J. K. Gyimah'],
+      ['lecture', '400', 'Tuesday', '09:00 AM – 11:00 AM', 'EL 451', 'High Voltage Engineering & Substations', 'High Voltage Wing', 'Prof. J. K. Gyimah'],
+      ['exam', '300', 'Dec 08, 2026', '09:00 AM – 12:00 PM', 'EL 351', 'Control Systems Engineering', 'Main Auditorium Hall A', 'Dr. M. Asante'],
+      ['exam', '300', 'Dec 11, 2026', '09:00 AM – 12:00 PM', 'EL 353', 'Power Systems Analysis & Protection', 'Main Auditorium Hall A', 'Prof. J. K. Gyimah'],
+      ['exam', '100', 'Dec 07, 2026', '09:00 AM – 12:00 PM', 'EL 151', 'Applied Electricity & Circuit Fundamentals', 'Engineering Exam Hall', 'Dr. K. Mensah'],
+      ['exam', '200', 'Dec 09, 2026', '02:00 PM – 05:00 PM', 'EL 251', 'Electromagnetic Field Theory', 'Engineering Exam Hall', 'Dr. E. Osei-Tutu'],
+      ['exam', '400', 'Dec 10, 2026', '09:00 AM – 12:00 PM', 'EL 451', 'High Voltage Engineering & Substations', 'Main Auditorium Hall B', 'Prof. J. K. Gyimah']
+    ];
+    for (const s of seedSlots) {
+      await pool.query(
+        `INSERT INTO public.eleesa_timetables
+         (entry_type, level, day_or_date, time_slot, course_code, course_title, venue, lecturer_or_invigilator)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        s
+      );
+    }
+  }
+
+  const calCount = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.academic_calendar');
+  if (calCount.rows[0].cnt === 0) {
+    const seedEvents = [
+      ['Course Registration & Add/Drop Window Closes', 'Deadline', 'Nov 28, 2026', 'ALL', 'Final deadline for confirming Semester 1 courses on the student portal.'],
+      ['Mid-Semester Practical & Lab Assessment Week', 'Academic', 'Dec 01 – Dec 04, 2026', 'ALL', 'Mandatory laboratory practical evaluations across Machines, Power, and Electronics labs.'],
+      ['End-of-Semester Written Examinations', 'Exams', 'Dec 07 – Dec 18, 2026', 'ALL', 'University-wide end-of-semester examinations. Bring student ID and approved non-programmable calculators.'],
+      ['Final-Year Project Topic Defense', 'Deadline', 'Dec 15, 2026', '400', 'Level 400 students present project problem statements and block diagrams to faculty supervisors.'],
+      ['Inter-Semester Break & Industrial Attachment Prep', 'Holiday', 'Dec 21, 2026 – Jan 10, 2027', 'ALL', 'Semester break and industrial placement letter collection at the departmental office.']
+    ];
+    for (const ev of seedEvents) {
+      await pool.query(
+        `INSERT INTO public.academic_calendar (title, category, event_date, target_level, description)
+         VALUES ($1,$2,$3,$4,$5)`,
+        ev
+      );
+    }
+  }
+}
+
+// GET /api/academic/overview (Item #1: Home Dashboard Live Feed)
+app.get('/api/academic/overview', async (req, res) => {
+  await getGridSchemaReady();
+  const level = String(req.query.level || '100').trim();
+  try {
+    const [deptRes, ttRes, calRes, courseRes] = await Promise.all([
+      pool.query('SELECT * FROM public.department_info WHERE id = 1'),
+      pool.query(
+        `SELECT * FROM public.eleesa_timetables
+         WHERE entry_type = 'lecture' AND (level = $1 OR $1 = 'ALL')
+         ORDER BY entry_id ASC LIMIT 6`,
+        [level]
+      ),
+      pool.query(
+        `SELECT * FROM public.academic_calendar
+         WHERE target_level = 'ALL' OR target_level = $1
+         ORDER BY event_id ASC LIMIT 5`,
+        [level]
+      ),
+      pool.query('SELECT COUNT(*)::int AS total FROM public.eleesa_courses'),
+    ]);
+
+    res.json({
+      department: deptRes.rows[0] || {},
+      schedule: ttRes.rows,
+      calendar: calRes.rows,
+      course_count: courseRes.rows[0]?.total || 0,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/academic/department-info (Item #2: HoD Edit About Department)
+app.post('/api/academic/department-info', async (req, res) => {
+  await getGridSchemaReady();
+  const {
+    requester_email,
+    department_name,
+    institution,
+    location,
+    office_hours,
+    contact_email,
+    contact_phone,
+    history,
+    vision,
+    mission,
+    hod_message,
+  } = req.body;
+
+  try {
+    const userCheck = await pool.query(
+      'SELECT role FROM public.users WHERE LOWER(email) = $1',
+      [String(requester_email || '').trim().toLowerCase()]
+    );
+    if (userCheck.rows.length === 0 || userCheck.rows[0].role !== 'hod_admin') {
+      return res.status(403).json({ message: 'Only the HoD/Admin can edit department information.' });
+    }
+
+    await pool.query(
+      `UPDATE public.department_info
+       SET department_name = COALESCE(NULLIF($1,''), department_name),
+           institution = COALESCE(NULLIF($2,''), institution),
+           location = COALESCE(NULLIF($3,''), location),
+           office_hours = COALESCE(NULLIF($4,''), office_hours),
+           contact_email = COALESCE(NULLIF($5,''), contact_email),
+           contact_phone = COALESCE(NULLIF($6,''), contact_phone),
+           history = COALESCE(NULLIF($7,''), history),
+           vision = COALESCE(NULLIF($8,''), vision),
+           mission = COALESCE(NULLIF($9,''), mission),
+           hod_message = COALESCE(NULLIF($10,''), hod_message),
+           updated_at = NOW()
+       WHERE id = 1`,
+      [
+        department_name || '',
+        institution || '',
+        location || '',
+        office_hours || '',
+        contact_email || '',
+        contact_phone || '',
+        history || '',
+        vision || '',
+        mission || '',
+        hod_message || '',
+      ]
+    );
+
+    res.json({ message: 'Department profile updated across all portals.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/academic/courses & POST /api/academic/courses (Item #4)
+app.get('/api/academic/courses', async (req, res) => {
+  await getGridSchemaReady();
+  try {
+    const result = await pool.query(
+      'SELECT * FROM public.eleesa_courses ORDER BY level ASC, semester ASC, course_code ASC'
+    );
+    res.json({ courses: result.rows });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post('/api/academic/courses', async (req, res) => {
+  await getGridSchemaReady();
+  const {
+    requester_email,
+    course_code,
+    course_title,
+    level,
+    semester,
+    credit_hours,
+    prerequisites,
+    syllabus,
+    lecturer_name,
+    lecturer_email,
+  } = req.body;
+
+  try {
+    const u = await pool.query(
+      'SELECT role, full_name, email FROM public.users WHERE LOWER(email) = $1',
+      [String(requester_email || '').trim().toLowerCase()]
+    );
+    if (u.rows.length === 0 || !['lecturer', 'hod_admin'].includes(u.rows[0].role)) {
+      return res.status(403).json({ message: 'Only Lecturers and HoD can publish courses or syllabi.' });
+    }
+
+    const code = String(course_code || '').trim().toUpperCase();
+    const title = String(course_title || '').trim();
+    if (!code || !title) {
+      return res.status(400).json({ message: 'Course code and title are required.' });
+    }
+
+    await pool.query(
+      `INSERT INTO public.eleesa_courses
+       (course_code, course_title, level, semester, credit_hours, prerequisites, syllabus, lecturer_name, lecturer_email, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+       ON CONFLICT (course_code) DO UPDATE SET
+         course_title = EXCLUDED.course_title,
+         level = EXCLUDED.level,
+         semester = EXCLUDED.semester,
+         credit_hours = EXCLUDED.credit_hours,
+         prerequisites = EXCLUDED.prerequisites,
+         syllabus = EXCLUDED.syllabus,
+         lecturer_name = EXCLUDED.lecturer_name,
+         lecturer_email = EXCLUDED.lecturer_email,
+         updated_at = NOW()`,
+      [
+        code,
+        title,
+        String(level || '100'),
+        String(semester || '1'),
+        parseInt(credit_hours, 10) || 3,
+        String(prerequisites || 'None').trim(),
+        String(syllabus || 'Course outline to be updated.').trim(),
+        String(lecturer_name || u.rows[0].full_name).trim(),
+        String(lecturer_email || u.rows[0].email).trim(),
+      ]
+    );
+
+    res.json({ message: `Course ${code} saved to curriculum.` });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET & POST /api/academic/timetable & /api/academic/calendar (Item #5)
+app.get('/api/academic/timetable', async (req, res) => {
+  await getGridSchemaReady();
+  try {
+    const [ttRes, calRes] = await Promise.all([
+      pool.query('SELECT * FROM public.eleesa_timetables ORDER BY level ASC, entry_id ASC'),
+      pool.query('SELECT * FROM public.academic_calendar ORDER BY event_id ASC'),
+    ]);
+    res.json({
+      timetables: ttRes.rows,
+      calendar: calRes.rows,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post('/api/academic/timetable', async (req, res) => {
+  await getGridSchemaReady();
+  const {
+    requester_email,
+    entry_type,
+    level,
+    day_or_date,
+    time_slot,
+    course_code,
+    course_title,
+    venue,
+    lecturer_or_invigilator,
+  } = req.body;
+
+  try {
+    const u = await pool.query(
+      'SELECT role, full_name FROM public.users WHERE LOWER(email) = $1',
+      [String(requester_email || '').trim().toLowerCase()]
+    );
+    if (u.rows.length === 0 || !['lecturer', 'hod_admin'].includes(u.rows[0].role)) {
+      return res.status(403).json({ message: 'Only Lecturers and HoD can publish timetable entries.' });
+    }
+
+    await pool.query(
+      `INSERT INTO public.eleesa_timetables
+       (entry_type, level, day_or_date, time_slot, course_code, course_title, venue, lecturer_or_invigilator)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        entry_type === 'exam' ? 'exam' : 'lecture',
+        String(level || '100'),
+        String(day_or_date || 'Monday').trim(),
+        String(time_slot || '08:00 AM – 10:00 AM').trim(),
+        String(course_code || '').trim().toUpperCase(),
+        String(course_title || '').trim(),
+        String(venue || 'Main Engineering Block').trim(),
+        String(lecturer_or_invigilator || u.rows[0].full_name).trim(),
+      ]
+    );
+
+    res.json({ message: 'Timetable slot published.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post('/api/academic/calendar', async (req, res) => {
+  await getGridSchemaReady();
+  const { requester_email, title, category, event_date, target_level, description } = req.body;
+
+  try {
+    const u = await pool.query(
+      'SELECT role FROM public.users WHERE LOWER(email) = $1',
+      [String(requester_email || '').trim().toLowerCase()]
+    );
+    if (u.rows.length === 0 || u.rows[0].role !== 'hod_admin') {
+      return res.status(403).json({ message: 'Only the HoD/Admin can publish academic calendar dates.' });
+    }
+
+    await pool.query(
+      `INSERT INTO public.academic_calendar (title, category, event_date, target_level, description)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [
+        String(title || '').trim(),
+        String(category || 'Academic').trim(),
+        String(event_date || '').trim(),
+        String(target_level || 'ALL').trim(),
+        String(description || '').trim(),
+      ]
+    );
+
+    res.json({ message: 'Academic calendar milestone published.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/academic/staff-update (Item #3: Lecturer/HoD Staff Card Editor)
+app.post('/api/academic/staff-update', async (req, res) => {
+  await getGridSchemaReady();
+  const {
+    requester_email,
+    target_email,
+    academic_title,
+    specialization,
+    office_location,
+    office_hours,
+    courses_taught,
+    research_interests,
+  } = req.body;
+
+  try {
+    const reqClean = String(requester_email || '').trim().toLowerCase();
+    const targetClean = String(target_email || reqClean).trim().toLowerCase();
+
+    const u = await pool.query('SELECT role FROM public.users WHERE LOWER(email) = $1', [reqClean]);
+    if (u.rows.length === 0 || !['lecturer', 'hod_admin'].includes(u.rows[0].role)) {
+      return res.status(403).json({ message: 'Unauthorized staff update.' });
+    }
+    if (u.rows[0].role !== 'hod_admin' && reqClean !== targetClean) {
+      return res.status(403).json({ message: 'Lecturers can only edit their own faculty profile.' });
+    }
+
+    await pool.query(
+      `UPDATE public.staff_profiles
+       SET academic_title = COALESCE(NULLIF($1,''), academic_title),
+           specialization = COALESCE(NULLIF($2,''), specialization),
+           office_location = COALESCE(NULLIF($3,''), office_location),
+           office_hours = COALESCE(NULLIF($4,''), office_hours),
+           courses_taught = COALESCE(NULLIF($5,''), courses_taught),
+           research_interests = COALESCE(NULLIF($6,''), research_interests)
+       WHERE LOWER(email) = $7`,
+      [
+        academic_title || '',
+        specialization || '',
+        office_location || '',
+        office_hours || '',
+        courses_taught || '',
+        research_interests || '',
+        targetClean,
+      ]
+    );
+
+    res.json({ message: 'Faculty directory profile updated.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+app.listen(PORT, (err) => {
   if (err) {
     console.error('Failed to start server:', err.message);
     process.exit(1);
