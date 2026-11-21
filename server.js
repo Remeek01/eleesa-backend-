@@ -1396,6 +1396,100 @@ app.post('/api/academic/department-info', async (req, res) => {
 });
 
 // GET /api/academic/courses & POST /api/academic/courses (Item #4)
+async function seedWave2DefaultsIfEmpty() {
+  try {
+    const deptRes = await pool.query('SELECT id FROM public.department_info WHERE id = 1');
+    if (deptRes.rows.length === 0) {
+      await pool.query(
+        `INSERT INTO public.department_info
+         (id, department_name, institution, location, office_hours, contact_email, contact_phone, history, vision, mission, hod_message)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          1,
+          'Department of Electrical & Electronic Engineering',
+          'University of Mines and Technology (UMaT)',
+          'Faculty of Engineering Block, UMaT Main Campus, Tarkwa',
+          'Monday – Friday • 8:00 AM – 5:00 PM GMT',
+          'eee.dept@umat.edu.gh',
+          '+233 (0) 312 320 324',
+          'Established to train world-class electrical and electronic engineers for Ghana’s power, mining, telecommunications, and industrial automation sectors, the department combines analytical theory with hands-on laboratory and substation training.',
+          'To be a premier centre of excellence in Electrical and Electronic Engineering education, sustainable energy systems, and applied technological innovation across Africa.',
+          'To produce ethically grounded, industry-ready engineers equipped with strong problem-solving, research, and leadership capabilities through modern laboratories and industry partnerships.',
+          'Welcome to the ELEESA Digital Grid. Whether you are a student, lecturer, or visitor, this hub connects our lecture halls, laboratories, and research groups into one unified engineering workspace.'
+        ]
+      );
+    }
+
+    const cRes = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.eleesa_courses');
+    if ((cRes.rows[0]?.cnt ?? 0) === 0) {
+      const seedCourses = [
+        ['EL 151', 'Applied Electricity & Circuit Fundamentals', '100', '1', 3, 'None', 'DC/AC network theorems, mesh and nodal analysis, phasors, resonance, and single-phase power circuits.', 'Dr. K. Mensah', 'kmensah@umat.edu.gh'],
+        ['EL 152', 'Basic Electronics & Semiconductor Devices', '100', '2', 3, 'EL 151', 'PN junction diodes, rectifiers, BJT and MOSFET biasing, small-signal amplifiers, and operational amplifier basics.', 'Ing. A. Boateng', 'aboateng@umat.edu.gh'],
+        ['EL 251', 'Electromagnetic Field Theory', '200', '1', 3, 'EL 151', 'Vector calculus, electrostatics, magnetostatics, Faraday’s law, Maxwell’s equations, and transmission line fundamentals.', 'Dr. E. Osei-Tutu', 'eoseitutu@umat.edu.gh'],
+        ['EL 254', 'Digital Logic & Microprocessor Systems', '200', '2', 3, 'EL 152', 'Boolean algebra, combinational and sequential logic design, VHDL basics, and 8-bit/32-bit microcontroller architecture.', 'Ing. S. Owusu', 'sowusu@umat.edu.gh'],
+        ['EL 351', 'Control Systems Engineering', '300', '1', 3, 'EL 251', 'Transfer functions, state-space modeling, time-domain stability, Routh-Hurwitz criterion, root locus, and Bode/Nyquist frequency design.', 'Dr. M. Asante', 'masante@umat.edu.gh'],
+        ['EL 353', 'Power Systems Analysis & Protection', '300', '1', 3, 'EL 251', 'Per-unit system, symmetrical components, load flow studies (Gauss-Seidel & Newton-Raphson), fault analysis, and relay coordination.', 'Prof. J. K. Gyimah', 'jkgyimah@umat.edu.gh'],
+        ['EL 356', 'Power Electronics & Electric Drives', '300', '2', 3, 'EL 152, EL 353', 'Controlled rectifiers, DC-DC choppers, PWM inverters, and variable-speed induction/DC motor drives.', 'Ing. R. Darko', 'rdarko@umat.edu.gh'],
+        ['EL 451', 'High Voltage Engineering & Substations', '400', '1', 3, 'EL 353', 'Dielectric breakdown mechanisms, surge arresters, insulation coordination, switchgear, and primary substation design.', 'Prof. J. K. Gyimah', 'jkgyimah@umat.edu.gh'],
+        ['EL 454', 'Industrial Automation & SCADA Systems', '400', '2', 3, 'EL 351', 'PLC ladder logic programming, industrial fieldbuses, SCADA telemetry, and smart grid instrumentation.', 'Dr. M. Asante', 'masante@umat.edu.gh']
+      ];
+      for (const c of seedCourses) {
+        await pool.query(
+          `INSERT INTO public.eleesa_courses
+           (course_code, course_title, level, semester, credit_hours, prerequisites, syllabus, lecturer_name, lecturer_email)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (course_code) DO NOTHING`,
+          c
+        );
+      }
+    }
+
+    const tRes = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.eleesa_timetables');
+    if ((tRes.rows[0]?.cnt ?? 0) === 0) {
+      const seedSlots = [
+        ['lecture', '100', 'Monday', '08:00 AM – 10:00 AM', 'EL 151', 'Applied Electricity & Circuit Fundamentals', 'LT 1 (Main Block)', 'Dr. K. Mensah'],
+        ['lecture', '200', 'Monday', '10:30 AM – 12:30 PM', 'EL 251', 'Electromagnetic Field Theory', 'LT 2 (Eng. Block)', 'Dr. E. Osei-Tutu'],
+        ['lecture', '300', 'Monday', '08:00 AM – 10:00 AM', 'EL 351', 'Control Systems Engineering', 'EEE Lecture Room 3', 'Dr. M. Asante'],
+        ['lecture', '300', 'Wednesday', '01:30 PM – 03:30 PM', 'EL 353', 'Power Systems Analysis & Protection', 'Power Lab Seminar Room', 'Prof. J. K. Gyimah'],
+        ['lecture', '400', 'Tuesday', '09:00 AM – 11:00 AM', 'EL 451', 'High Voltage Engineering & Substations', 'High Voltage Wing', 'Prof. J. K. Gyimah'],
+        ['exam', '300', 'Dec 08, 2026', '09:00 AM – 12:00 PM', 'EL 351', 'Control Systems Engineering', 'Main Auditorium Hall A', 'Dr. M. Asante'],
+        ['exam', '300', 'Dec 11, 2026', '09:00 AM – 12:00 PM', 'EL 353', 'Power Systems Analysis & Protection', 'Main Auditorium Hall A', 'Prof. J. K. Gyimah'],
+        ['exam', '100', 'Dec 07, 2026', '09:00 AM – 12:00 PM', 'EL 151', 'Applied Electricity & Circuit Fundamentals', 'Engineering Exam Hall', 'Dr. K. Mensah'],
+        ['exam', '200', 'Dec 09, 2026', '02:00 PM – 05:00 PM', 'EL 251', 'Electromagnetic Field Theory', 'Engineering Exam Hall', 'Dr. E. Osei-Tutu'],
+        ['exam', '400', 'Dec 10, 2026', '09:00 AM – 12:00 PM', 'EL 451', 'High Voltage Engineering & Substations', 'Main Auditorium Hall B', 'Prof. J. K. Gyimah']
+      ];
+      for (const s of seedSlots) {
+        await pool.query(
+          `INSERT INTO public.eleesa_timetables
+           (entry_type, level, day_or_date, time_slot, course_code, course_title, venue, lecturer_or_invigilator)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          s
+        );
+      }
+    }
+
+    const calRes = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.academic_calendar');
+    if ((calRes.rows[0]?.cnt ?? 0) === 0) {
+      const seedEvents = [
+        ['Course Registration & Add/Drop Window Closes', 'Deadline', 'Nov 28, 2026', 'ALL', 'Final deadline for confirming Semester 1 courses on the student portal.'],
+        ['Mid-Semester Practical & Lab Assessment Week', 'Academic', 'Dec 01 – Dec 04, 2026', 'ALL', 'Mandatory laboratory practical evaluations across Machines, Power, and Electronics labs.'],
+        ['End-of-Semester Written Examinations', 'Exams', 'Dec 07 – Dec 18, 2026', 'ALL', 'University-wide end-of-semester examinations. Bring student ID and approved non-programmable calculators.'],
+        ['Final-Year Project Topic Defense', 'Deadline', 'Dec 15, 2026', '400', 'Level 400 students present project problem statements and block diagrams to faculty supervisors.'],
+        ['Inter-Semester Break & Industrial Attachment Prep', 'Holiday', 'Dec 21, 2026 – Jan 10, 2027', 'ALL', 'Semester break and industrial placement letter collection at the departmental office.']
+      ];
+      for (const ev of seedEvents) {
+        await pool.query(
+          `INSERT INTO public.academic_calendar (title, category, event_date, target_level, description)
+           VALUES ($1,$2,$3,$4,$5)`,
+          ev
+        );
+      }
+    }
+  } catch (e) {
+    console.error('seedWave2DefaultsIfEmpty warning:', e.message);
+  }
+}
+
 app.get('/api/academic/courses', async (req, res) => {
   await ensureWave2Ready();
   try {
