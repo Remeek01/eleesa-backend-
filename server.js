@@ -1582,7 +1582,7 @@ app.post('/api/academic/staff-update', async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-app.listen(PORT, (err) => {
+const activeHttpServer = app.listen(PORT, (err) => {
   if (err) {
     console.error('Failed to start server:', err.message);
     process.exit(1);
@@ -1595,7 +1595,7 @@ app.listen(PORT, (err) => {
     .catch((dbErr) => console.error('PostgreSQL connection error:', dbErr.message));
 });
 
-server.on('error', (err) => {
+if (activeHttpServer && typeof activeHttpServer.on === 'function') activeHttpServer.on('error', (err) => {
   console.error('Server error:', err.message);
   process.exit(1);
 });
