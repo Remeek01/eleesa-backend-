@@ -634,7 +634,9 @@ async function ensureEleesaGridSchema() {
       ALTER TABLE public.users
         ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN DEFAULT FALSE,
         ADD COLUMN IF NOT EXISTS level VARCHAR(10),
-        ADD COLUMN IF NOT EXISTS index_or_staff_id VARCHAR(50);
+        ADD COLUMN IF NOT EXISTS index_or_staff_id VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS avatar_data TEXT,
+        ADD COLUMN IF NOT EXISTS bio TEXT;
     `);
 
     for (const tableName of Object.values(LEVEL_TABLES)) {
@@ -702,7 +704,7 @@ app.get('/api/profile', async (req, res) => {
 
   try {
     const userRes = await pool.query(
-      'SELECT user_id, full_name, email, role, level, index_or_staff_id, COALESCE(profile_completed, FALSE) AS profile_completed FROM public.users WHERE LOWER(email) = $1',
+      'SELECT user_id, full_name, email, role, level, index_or_staff_id, avatar_data, bio, COALESCE(profile_completed, FALSE) AS profile_completed FROM public.users WHERE LOWER(email) = $1',
       [email]
     );
     if (userRes.rows.length === 0) {
@@ -1018,6 +1020,91 @@ app.get('/api/hub/staff-directory', async (req, res) => {
     }));
 
     res.json({ staff });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/profile/avatar (Wave 1: Student & Staff Profile Picture Upload)
+app.post('/api/profile/avatar', async (req, res) => {
+  await getGridSchemaReady();
+  const cleanEmail = String(req.body.email || '').trim().toLowerCase();
+  const avatarData = String(req.body.avatar_data || '').trim();
+
+  if (!cleanEmail || !avatarData) {
+    return res.status(400).json({ message: 'Email and avatar image data are required.' });
+  }
+  if (avatarData.length > 2500000) {
+    return res.status(400).json({ message: 'Image is too large. Please choose a photo under 1.5 MB.' });
+  }
+
+  try {
+    const result = await pool.query(
+      'UPDATE public.users SET avatar_data = $1 WHERE LOWER(email) = $2 RETURNING user_id, full_name, email, avatar_data',
+      [avatarData, cleanEmail]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+    res.json({
+      message: 'Profile picture updated on ELEESA Grid.',
+      avatar_data: result.rows[0].avatar_data,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/public/visitor-hub (Wave 1: No-Login Visitor Portal)
+app.get('/api/public/visitor-hub', async (req, res) => {
+  await getGridSchemaReady();
+  try {
+    const staffRes = await pool.query(`
+      SELECT s.staff_id, s.full_name, s.email, s.role, s.academic_title,
+             s.specialization, s.office_hours, u.avatar_data
+      FROM public.staff_profiles s
+      LEFT JOIN public.users u ON LOWER(u.email) = LOWER(s.email)
+      ORDER BY s.role DESC, s.full_name ASC
+    `);
+
+    res.json({
+      about: {
+        department_name: 'Department of Electrical & Electronic Engineering',
+        association: 'Electrical & Electronic Engineering Students Association (ELEESA)',
+        institution: 'University of Mines and Technology (UMaT)',
+        location: 'Faculty of Engineering Block, UMaT Main Campus, Tarkwa, Ghana',
+        office_hours: 'Monday – Friday • 8:00 AM – 5:00 PM GMT',
+        history:
+          'Established to train world-class electrical and electronic engineers for Ghana’s power, mining, telecommunications, and industrial automation sectors, the department combines rigorous analytical theory with hands-on laboratory and substation training.',
+        vision:
+          'To be a premier centre of excellence in Electrical and Electronic Engineering education, sustainable energy systems, and applied technological innovation across Africa.',
+        mission:
+          'To produce ethically grounded, industry-ready engineers equipped with strong problem-solving, research, and leadership capabilities through modern laboratories and industry partnerships.',
+        hod_message:
+          'Welcome to the ELEESA Digital Grid. Whether you are a prospective student, visitor, faculty member, or undergraduate engineer, this platform connects our lecture halls, laboratories, and research community into one unified academic ecosystem.',
+        programs: [
+          {
+            code: 'BSc. EEE',
+            title: 'BSc. Electrical and Electronic Engineering (4-Year)',
+            tracks: [
+              'Power Systems & High Voltage Engineering',
+              'Control Systems & Industrial Automation',
+              'Telecommunications & Signal Processing',
+              'Embedded Systems & Power Electronics',
+            ],
+          },
+          {
+            code: 'MSc / MPhil',
+            title: 'Postgraduate Research in Electrical & Electronic Engineering',
+            tracks: [
+              'Renewable Energy & Smart Grids',
+              'Instrumentation & Control Engineering',
+            ],
+          },
+        ],
+      },
+      staff: staffRes.rows,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
