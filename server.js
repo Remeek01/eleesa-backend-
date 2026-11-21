@@ -1345,7 +1345,18 @@ app.get('/api/academic/overview', async (req, res) => {
     ]);
 
     res.json({
-      department: deptRes.rows[0] || {},
+      department: (deptRes.rows[0] && deptRes.rows[0].department_name) ? deptRes.rows[0] : {
+        department_name: 'Department of Electrical & Electronic Engineering',
+        institution: 'University of Mines and Technology (UMaT)',
+        location: 'Faculty of Engineering Block, UMaT Main Campus, Tarkwa',
+        office_hours: 'Monday – Friday • 8:00 AM – 5:00 PM GMT',
+        contact_email: 'eee.dept@umat.edu.gh',
+        contact_phone: '+233 (0) 312 320 324',
+        history: 'Established to train world-class electrical and electronic engineers for Ghana’s power, mining, telecommunications, and industrial automation sectors, the department combines analytical theory with hands-on laboratory and substation training.',
+        vision: 'To be a premier centre of excellence in Electrical and Electronic Engineering education, sustainable energy systems, and applied technological innovation across Africa.',
+        mission: 'To produce ethically grounded, industry-ready engineers equipped with strong problem-solving, research, and leadership capabilities through modern laboratories and industry partnerships.',
+        hod_message: 'Welcome to the ELEESA Digital Grid. Whether you are a student, lecturer, or visitor, this hub connects our lecture halls, laboratories, and research groups into one unified engineering workspace.'
+      },
       schedule: ttRes.rows,
       calendar: calRes.rows,
       course_count: courseRes.rows[0]?.total || 0,
@@ -1619,6 +1630,7 @@ app.post('/api/academic/courses', async (req, res) => {
 // GET & POST /api/academic/timetable & /api/academic/calendar (Item #5)
 app.get('/api/academic/timetable', async (req, res) => {
   await ensureWave2Ready();
+  await seedWave2DefaultsIfEmpty();
   try {
     const [ttRes, calRes] = await Promise.all([
       pool.query('SELECT * FROM public.eleesa_timetables ORDER BY level ASC, entry_id ASC'),
