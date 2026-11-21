@@ -1870,6 +1870,401 @@ app.post('/api/academic/staff-update', async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+
+// ==================== WAVE 3: RESOURCES, 5 LABS, PROJECTS & ATTACHMENT ====================
+let _wave3ReadyPromise = null;
+function ensureWave3Ready() {
+  if (!_wave3ReadyPromise) {
+    _wave3ReadyPromise = initAndSeedWave3().catch((err) => {
+      _wave3ReadyPromise = null;
+      console.error('Wave 3 init error:', err.message);
+      throw err;
+    });
+  }
+  return _wave3ReadyPromise;
+}
+
+async function initAndSeedWave3() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.eleesa_resources (
+        resource_id SERIAL PRIMARY KEY,
+        title VARCHAR(220) NOT NULL,
+        course_code VARCHAR(30) NOT NULL,
+        level VARCHAR(10) NOT NULL DEFAULT '300',
+        category VARCHAR(50) NOT NULL DEFAULT 'Lecture Notes',
+        file_url TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        uploaded_by VARCHAR(150) NOT NULL,
+        uploader_role VARCHAR(30) NOT NULL DEFAULT 'student',
+        status VARCHAR(20) NOT NULL DEFAULT 'approved',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.eleesa_lab_equipment (
+        equipment_id SERIAL PRIMARY KEY,
+        lab_name VARCHAR(120) NOT NULL,
+        equipment_name VARCHAR(180) NOT NULL,
+        model_code VARCHAR(80) DEFAULT '',
+        quantity INTEGER NOT NULL DEFAULT 1,
+        status VARCHAR(30) NOT NULL DEFAULT 'Available',
+        specs TEXT DEFAULT '',
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.eleesa_lab_bookings (
+        booking_id SERIAL PRIMARY KEY,
+        lab_name VARCHAR(120) NOT NULL,
+        equipment_name VARCHAR(180) DEFAULT 'General Bench',
+        student_name VARCHAR(150) NOT NULL,
+        student_email VARCHAR(150) NOT NULL,
+        index_number VARCHAR(50) DEFAULT '',
+        booking_date VARCHAR(40) NOT NULL,
+        time_slot VARCHAR(60) NOT NULL,
+        purpose TEXT NOT NULL,
+        status VARCHAR(25) NOT NULL DEFAULT 'Pending',
+        reviewed_by VARCHAR(150),
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.eleesa_projects (
+        project_id SERIAL PRIMARY KEY,
+        title VARCHAR(240) NOT NULL,
+        category VARCHAR(80) NOT NULL DEFAULT 'Power & Smart Grid',
+        academic_year VARCHAR(20) NOT NULL DEFAULT '2025/2026',
+        student_names VARCHAR(220) NOT NULL,
+        supervisor_name VARCHAR(150) NOT NULL,
+        abstract TEXT NOT NULL,
+        status VARCHAR(30) NOT NULL DEFAULT 'Approved',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.eleesa_attachments (
+        attachment_id SERIAL PRIMARY KEY,
+        company_name VARCHAR(180) NOT NULL,
+        sector VARCHAR(80) NOT NULL DEFAULT 'Power & Energy',
+        location VARCHAR(120) NOT NULL,
+        student_name VARCHAR(150),
+        student_email VARCHAR(150),
+        level VARCHAR(10) DEFAULT '300',
+        role_title VARCHAR(150) DEFAULT 'Electrical Engineering Intern',
+        duration VARCHAR(60) DEFAULT '8 Weeks',
+        supervisor_contact VARCHAR(150) DEFAULT '',
+        status VARCHAR(30) NOT NULL DEFAULT 'Open Slot',
+        logbook_summary TEXT DEFAULT '',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+  } catch (ddlErr) {
+    console.error('Wave 3 DDL warning:', ddlErr.message);
+  }
+
+  try {
+    const rCnt = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.eleesa_resources');
+    if ((rCnt.rows[0]?.cnt ?? 0) === 0) {
+      const resources = [
+        ['Control Systems Bode & Root Locus Design Handbook', 'EL 351', '300', 'Lecture Notes', 'https://umat.edu.gh/eee/resources/el351-control-handbook.pdf', 'Worked stability examples, Routh arrays, and frequency compensation plots.', 'Dr. M. Asante', 'lecturer', 'approved'],
+        ['Power Systems Load Flow & Fault Analysis Past Questions (2022–2025)', 'EL 353', '300', 'Past Questions', 'https://umat.edu.gh/eee/resources/el353-past-questions.pdf', 'Compiled end-of-semester exam papers with per-unit fault calculation solutions.', 'Prof. J. K. Gyimah', 'lecturer', 'approved'],
+        ['PWM Inverter & Three-Phase Drive Lab Manual', 'EL 356', '300', 'Lab Manual', 'https://umat.edu.gh/eee/resources/el356-drive-lab.pdf', 'Safety checklist, oscilloscope probe setup, and duty-cycle measurement tables.', 'Ing. R. Darko', 'lecturer', 'approved'],
+        ['Applied Electricity Mesh & Nodal Solved Problem Bank', 'EL 151', '100', 'Tutorial Sheet', 'https://umat.edu.gh/eee/resources/el151-tutorials.pdf', 'Step-by-step DC/AC circuit theorems and phasor diagrams for Level 100.', 'Dr. K. Mensah', 'lecturer', 'approved'],
+        ['VHDL & Microcontroller Interfacing Reference Guide', 'EL 254', '200', 'Lecture Notes', 'https://umat.edu.gh/eee/resources/el254-microcontrollers.pdf', 'Timer interrupts, ADC register mapping, and combinational logic synthesis.', 'Ing. S. Owusu', 'lecturer', 'approved'],
+        ['High Voltage Substation Insulation & Switchgear Notes', 'EL 451', '400', 'Lecture Notes', 'https://umat.edu.gh/eee/resources/el451-hv-substations.pdf', 'Surge arresters, SF6 circuit breakers, and primary substation busbar layouts.', 'Prof. J. K. Gyimah', 'lecturer', 'approved']
+      ];
+      for (const r of resources) {
+        await pool.query(
+          `INSERT INTO public.eleesa_resources
+           (title, course_code, level, category, file_url, description, uploaded_by, uploader_role, status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          r
+        );
+      }
+    }
+  } catch (e) {
+    console.error('Wave 3 resource seed warning:', e.message);
+  }
+
+  try {
+    const eCnt = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.eleesa_lab_equipment');
+    if ((eCnt.rows[0]?.cnt ?? 0) === 0) {
+      const equipment = [
+        ['Power Systems & High Voltage Lab', 'Three-Phase Protective Relay & Transformer Test Bench', 'HV-REL-300', 4, 'Available', 'Overcurrent, differential, and distance relay coordination trainer with fault simulator.'],
+        ['Power Systems & High Voltage Lab', '100kV AC/DC Dielectric Breakdown Test Kit', 'HV-DIE-100', 2, 'Supervised Only', 'High-voltage oil and solid insulation breakdown tester with safety interlock cage.'],
+        ['Electrical Machines & Drives Lab', '1.5kW Three-Phase Induction & Synchronous Machine Set', 'EM-SYN-150', 6, 'Available', 'Coupled prime mover, torque transducer, and synchronizing panel for load tests.'],
+        ['Electrical Machines & Drives Lab', 'Industrial Variable Frequency Drive (VFD) Trainer', 'EM-VFD-220', 4, 'Available', 'IGBT PWM inverter rack with regenerative braking and harmonic analyzer.'],
+        ['Analog & Digital Electronics Lab', '100MHz 4-Channel Digital Storage Oscilloscope', 'EL-DSO-104', 12, 'Available', '1 GSa/s mixed-signal oscilloscope with FFT spectrum and arbitrary function generator.'],
+        ['Analog & Digital Electronics Lab', 'FPGA & ARM Cortex-M4 Embedded Dev Station', 'EL-EMB-402', 10, 'Available', 'Xilinx Artix-7 FPGA & STM32 boards with logic analyzer probes.'],
+        ['Control Systems & Instrumentation Lab', 'PID Servo Motor & Coupled Tank Process Rig', 'CS-PID-501', 5, 'Available', 'Real-time MATLAB/Simulink hardware-in-the-loop position and level control trainer.'],
+        ['Control Systems & Instrumentation Lab', 'Siemens S7-1200 PLC & SCADA Automation Rack', 'CS-PLC-120', 4, 'In Use', 'Industrial ladder logic controller with HMI touchscreen and pneumatic actuators.'],
+        ['Telecommunications & Microwave Lab', '3GHz RF Spectrum Analyzer & Vector Signal Generator', 'TC-RFS-300', 3, 'Available', 'AM/FM/QAM modulation analyzer and antenna radiation pattern test bench.'],
+        ['Telecommunications & Microwave Lab', 'Optical Fiber & Software-Defined Radio (SDR) Kit', 'TC-SDR-210', 5, 'Available', 'Single-mode fiber attenuation bench and USRP SDR transceiver modules.']
+      ];
+      for (const eq of equipment) {
+        await pool.query(
+          `INSERT INTO public.eleesa_lab_equipment
+           (lab_name, equipment_name, model_code, quantity, status, specs)
+           VALUES ($1,$2,$3,$4,$5,$6)`,
+          eq
+        );
+      }
+    }
+  } catch (e) {
+    console.error('Wave 3 lab seed warning:', e.message);
+  }
+
+  try {
+    const pCnt = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.eleesa_projects');
+    if ((pCnt.rows[0]?.cnt ?? 0) === 0) {
+      const projects = [
+        ['IoT-Enabled 11kV Distribution Feeder Fault Locator with GSM/LoRa Telemetry', 'Power & Smart Grid', '2025/2026', 'Kwame Mensah & Abena Osei', 'Prof. J. K. Gyimah', 'Designs a low-cost current-transformer sensor node that detects line-to-ground faults and transmits GPS pole coordinates to substation operators within 4 seconds.', 'Approved'],
+        ['Solar-PV & Battery Hybrid Microgrid Energy Management System for Mining Host Communities', 'Renewable Energy', '2025/2026', 'Daniel Boateng & Efua Arthur', 'Dr. M. Asante', 'Implements fuzzy-logic load shedding and MPPT charge control to maintain uninterrupted power for clinics and schools during grid outages.', 'Approved'],
+        ['PLC & SCADA Automated Conveyor Belt Slip and Over-Temperature Protection for Underground Mines', 'Industrial Automation', '2025/2026', 'Josephine Kyei & Samuel Tetteh', 'Ing. R. Darko', 'Integrates infrared thermal sensors, rotary encoders, and Siemens PLC interlocks to prevent conveyor fires in harsh mining environments.', 'Approved'],
+        ['Smart Prepaid Energy Meter with Non-Intrusive Appliance Load Monitoring (NILM)', 'Embedded & IoT', '2024/2025', 'Emmanuel Quansah', 'Ing. S. Owusu', 'Uses harmonic current signatures on an ESP32-S3 microcontroller to disaggregate household appliance consumption and detect meter bypass.', 'Completed'],
+        ['Condition Monitoring of Three-Phase Induction Motors via Vibration & Stator Current FFT', 'Electrical Machines', '2024/2025', 'Priscilla Donkor & Kelvin Appiah', 'Dr. K. Mensah', 'Detects early-stage rotor bar and bearing degradation using spectral sideband analysis.', 'Completed']
+      ];
+      for (const pr of projects) {
+        await pool.query(
+          `INSERT INTO public.eleesa_projects
+           (title, category, academic_year, student_names, supervisor_name, abstract, status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          pr
+        );
+      }
+    }
+  } catch (e) {
+    console.error('Wave 3 projects seed warning:', e.message);
+  }
+
+  try {
+    const aCnt = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.eleesa_attachments');
+    if ((aCnt.rows[0]?.cnt ?? 0) === 0) {
+      const attachments = [
+        ['Electricity Company of Ghana (ECG) – Sekondi-Takoradi', 'Power Distribution', 'Takoradi, Western Region', null, null, '300', 'Substation & Protection Intern', '8 Weeks', 'regional.eng@ecg.com.gh', 'Open Slot', 'Rotation across 33/11kV primary substations, switchgear maintenance, and feeder load balancing.'],
+        ['Ghana Grid Company (GRIDCo) – Tarkwa Area', 'Power Transmission', 'Tarkwa, Western Region', null, null, '300', 'Transmission & SCADA Intern', '8 Weeks', 'tarkwa.ops@gridcogh.com', 'Open Slot', '161kV substation operations, protection relay testing, and grid telemetry monitoring.'],
+        ['Volta River Authority (VRA) – Aboadze Thermal Complex', 'Power Generation', 'Aboadze, Western Region', null, null, '300', 'Electrical Maintenance Intern', '8 Weeks', 'hr.aboadze@vra.com', 'Open Slot', 'Combined-cycle gas turbine generator excitation, transformer oil testing, and plant instrumentation.'],
+        ['Gold Fields Ghana Ltd – Tarkwa Mine', 'Mining & Automation', 'Tarkwa, Western Region', null, null, '300', 'Plant Electrical & PLC Intern', '8 Weeks', 'training.tarkwa@goldfields.com', 'Open Slot', 'High-voltage mill drives, PLC/SCADA process control, and underground power distribution.'],
+        ['MTN Ghana – Western Technical Operations', 'Telecommunications', 'Takoradi, Western Region', null, null, '300', 'RF & Core Network Intern', '8 Weeks', 'tech.interns@mtn.com.gh', 'Open Slot', 'Base transceiver station power systems, fiber-optic transmission, and network optimization.']
+      ];
+      for (const at of attachments) {
+        await pool.query(
+          `INSERT INTO public.eleesa_attachments
+           (company_name, sector, location, student_name, student_email, level, role_title, duration, supervisor_contact, status, logbook_summary)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          at
+        );
+      }
+    }
+  } catch (e) {
+    console.error('Wave 3 attachment seed warning:', e.message);
+  }
+}
+
+app.get('/api/wave3/resources', async (req, res) => {
+  await ensureWave3Ready();
+  const level = String(req.query.level || '').trim();
+  const includePending = req.query.includePending === 'true';
+  try {
+    const clauses = [];
+    const params = [];
+    if (!includePending) { clauses.push(`status = 'approved'`); }
+    if (level && level !== 'ALL') {
+      params.push(level);
+      clauses.push(`level = $${params.length}`);
+    }
+    const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const result = await pool.query(`SELECT * FROM public.eleesa_resources ${whereSql} ORDER BY resource_id DESC`, params);
+    res.json({ resources: result.rows });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post('/api/wave3/resources', async (req, res) => {
+  await ensureWave3Ready();
+  const { title, course_code, level, category, file_url, description, uploaded_by, uploader_role } = req.body || {};
+  if (!title || !course_code || !uploaded_by) {
+    return res.status(400).json({ message: 'title, course_code, and uploaded_by are required.' });
+  }
+  const role = String(uploader_role || 'student').toLowerCase();
+  const status = (role === 'lecturer' || role === 'hod' || role === 'admin') ? 'approved' : 'pending';
+  try {
+    const result = await pool.query(
+      `INSERT INTO public.eleesa_resources
+       (title, course_code, level, category, file_url, description, uploaded_by, uploader_role, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [
+        title.trim(),
+        course_code.trim().toUpperCase(),
+        String(level || '300').trim(),
+        String(category || 'Lecture Notes').trim(),
+        String(file_url || 'https://umat.edu.gh/eee/resources/submission').trim(),
+        String(description || '').trim(),
+        uploaded_by.trim(),
+        role,
+        status
+      ]
+    );
+    res.status(201).json({ resource: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.patch('/api/wave3/resources/:id/status', async (req, res) => {
+  await ensureWave3Ready();
+  const id = parseInt(req.params.id, 10);
+  const status = String(req.body?.status || 'approved').trim();
+  try {
+    const result = await pool.query(
+      'UPDATE public.eleesa_resources SET status = $1 WHERE resource_id = $2 RETURNING *',
+      [status, id]
+    );
+    res.json({ resource: result.rows[0] || null });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.get('/api/wave3/labs', async (req, res) => {
+  await ensureWave3Ready();
+  try {
+    const [eqRes, bkRes] = await Promise.all([
+      pool.query('SELECT * FROM public.eleesa_lab_equipment ORDER BY lab_name ASC, equipment_id ASC'),
+      pool.query('SELECT * FROM public.eleesa_lab_bookings ORDER BY booking_id DESC LIMIT 50')
+    ]);
+    res.json({ equipment: eqRes.rows, bookings: bkRes.rows });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post('/api/wave3/labs/book', async (req, res) => {
+  await ensureWave3Ready();
+  const { lab_name, equipment_name, student_name, student_email, index_number, booking_date, time_slot, purpose } = req.body || {};
+  if (!lab_name || !student_name || !booking_date || !time_slot || !purpose) {
+    return res.status(400).json({ message: 'lab_name, student_name, booking_date, time_slot, and purpose are required.' });
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO public.eleesa_lab_bookings
+       (lab_name, equipment_name, student_name, student_email, index_number, booking_date, time_slot, purpose, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Pending') RETURNING *`,
+      [
+        lab_name.trim(),
+        String(equipment_name || 'General Lab Bench').trim(),
+        student_name.trim(),
+        String(student_email || '').trim(),
+        String(index_number || '').trim(),
+        booking_date.trim(),
+        time_slot.trim(),
+        purpose.trim()
+      ]
+    );
+    res.status(201).json({ booking: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.patch('/api/wave3/labs/bookings/:id', async (req, res) => {
+  await ensureWave3Ready();
+  const id = parseInt(req.params.id, 10);
+  const { status, reviewed_by } = req.body || {};
+  try {
+    const result = await pool.query(
+      'UPDATE public.eleesa_lab_bookings SET status = $1, reviewed_by = $2 WHERE booking_id = $3 RETURNING *',
+      [String(status || 'Approved').trim(), String(reviewed_by || 'Faculty Lab Coordinator').trim(), id]
+    );
+    res.json({ booking: result.rows[0] || null });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.get('/api/wave3/projects', async (req, res) => {
+  await ensureWave3Ready();
+  try {
+    const result = await pool.query('SELECT * FROM public.eleesa_projects ORDER BY project_id DESC');
+    res.json({ projects: result.rows });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post('/api/wave3/projects', async (req, res) => {
+  await ensureWave3Ready();
+  const { title, category, academic_year, student_names, supervisor_name, abstract } = req.body || {};
+  if (!title || !student_names || !supervisor_name || !abstract) {
+    return res.status(400).json({ message: 'title, student_names, supervisor_name, and abstract are required.' });
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO public.eleesa_projects
+       (title, category, academic_year, student_names, supervisor_name, abstract, status)
+       VALUES ($1,$2,$3,$4,$5,$6,'Proposed') RETURNING *`,
+      [
+        title.trim(),
+        String(category || 'Power & Smart Grid').trim(),
+        String(academic_year || '2026/2027').trim(),
+        student_names.trim(),
+        supervisor_name.trim(),
+        abstract.trim()
+      ]
+    );
+    res.status(201).json({ project: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.get('/api/wave3/attachments', async (req, res) => {
+  await ensureWave3Ready();
+  try {
+    const result = await pool.query('SELECT * FROM public.eleesa_attachments ORDER BY attachment_id DESC');
+    res.json({ attachments: result.rows });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post('/api/wave3/attachments', async (req, res) => {
+  await ensureWave3Ready();
+  const { company_name, sector, location, student_name, student_email, level, role_title, duration, supervisor_contact, logbook_summary } = req.body || {};
+  if (!company_name || !location || !student_name) {
+    return res.status(400).json({ message: 'company_name, location, and student_name are required.' });
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO public.eleesa_attachments
+       (company_name, sector, location, student_name, student_email, level, role_title, duration, supervisor_contact, status, logbook_summary)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Active Placement',$10) RETURNING *`,
+      [
+        company_name.trim(),
+        String(sector || 'Power & Energy').trim(),
+        location.trim(),
+        student_name.trim(),
+        String(student_email || '').trim(),
+        String(level || '300').trim(),
+        String(role_title || 'Electrical Engineering Intern').trim(),
+        String(duration || '8 Weeks').trim(),
+        String(supervisor_contact || '').trim(),
+        String(logbook_summary || '').trim()
+      ]
+    );
+    res.status(201).json({ attachment: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+// ==================== END WAVE 3 ====================
+
 const activeHttpServer = app.listen(PORT, (err) => {
   if (err) {
     console.error('Failed to start server:', err.message);
