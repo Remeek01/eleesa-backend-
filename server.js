@@ -1212,8 +1212,8 @@ console.error('staff_profiles alter warning:', alterErr.message);
 }
 
 try {
-const deptCheck = await pool.query('SELECT id FROM public.department_info WHERE id = 1');
-if (deptCheck.rows.length === 0) {
+const deptCheck = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.department_info');
+if ((deptCheck.rows[0]?.cnt ?? 0) === 0) {
   await pool.query(
     `INSERT INTO public.department_info
      (id, department_name, institution, location, office_hours, contact_email, contact_phone, history, vision, mission, hod_message)
@@ -1308,7 +1308,7 @@ app.get('/api/academic/overview', async (req, res) => {
   const level = String(req.query.level || '100').trim();
   try {
     const [deptRes, ttRes, calRes, courseRes] = await Promise.all([
-      pool.query('SELECT * FROM public.department_info WHERE id = 1'),
+      pool.query('SELECT * FROM public.department_info ORDER BY id ASC NULLS LAST LIMIT 1'),
       pool.query(
         `SELECT * FROM public.eleesa_timetables
          WHERE entry_type = 'lecture' AND (level = $1 OR $1 = 'ALL')
@@ -1398,13 +1398,13 @@ app.post('/api/academic/department-info', async (req, res) => {
 // GET /api/academic/courses & POST /api/academic/courses (Item #4)
 async function seedWave2DefaultsIfEmpty() {
   try {
-    const deptRes = await pool.query('SELECT id FROM public.department_info WHERE id = 1');
-    if (deptRes.rows.length === 0) {
+    const deptRes = await pool.query('SELECT COUNT(*)::int AS cnt FROM public.department_info');
+    if ((deptRes.rows[0]?.cnt ?? 0) === 0) {
       await pool.query(
         `INSERT INTO public.department_info
          (id, department_name, institution, location, office_hours, contact_email, contact_phone, history, vision, mission, hod_message)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-         ON CONFLICT (id) DO NOTHING`,
+         `,
         [
           1,
           'Department of Electrical & Electronic Engineering',
