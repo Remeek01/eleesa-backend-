@@ -687,15 +687,23 @@ function getGridSchemaReady() {
     _gridSchemaPromise = Promise.resolve()
       .then(async () => {
         if (typeof ensureEleesaGridSchema === 'function') {
-          await ensureEleesaGridSchema();
+          try {
+            await ensureEleesaGridSchema();
+          } catch (e1) {
+            console.error('Grid schema warning:', e1.message);
+          }
         }
         if (typeof ensureWave2AcademicSchema === 'function') {
-          await ensureWave2AcademicSchema();
+          try {
+            await ensureWave2AcademicSchema();
+          } catch (e2) {
+            console.error('Wave 2 schema warning:', e2.message);
+          }
         }
       })
       .catch((err) => {
         _gridSchemaPromise = null;
-        console.error('Grid schema warning:', err.message);
+        console.error('Schema runner warning:', err.message);
       });
   }
   return _gridSchemaPromise;
